@@ -1,3 +1,8 @@
 bin/
 *.log
 .env
+
+# compiled Go binaries (never commit)
+*.exe
+*.out
+/training-environment-api
