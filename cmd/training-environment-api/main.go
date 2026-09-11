@@ -17,8 +17,10 @@ import (
 )
 
 func main() {
-	// 1. Storage repository setup (PostgreSQL or In-Memory fallback)
-	var repo port.EnvironmentTypeRepository
+	// 1. Storage repositories setup (PostgreSQL or In-Memory fallback)
+	var envTypeRepo port.EnvironmentTypeRepository
+	var envRepo port.EnvironmentRepository
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL != "" {
 		db, err := sql.Open("postgres", dbURL)
@@ -26,15 +28,18 @@ func main() {
 			log.Fatalf("failed to connect to postgres: %v", err)
 		}
 		defer db.Close()
-		repo = persistence.NewPostgresEnvironmentTypeRepository(db)
-		log.Println("connected to PostgreSQL repository")
+		envTypeRepo = persistence.NewPostgresEnvironmentTypeRepository(db)
+		envRepo = persistence.NewPostgresEnvironmentRepository(db)
+		log.Println("connected to PostgreSQL repositories")
 	} else {
-		repo = persistence.NewMemoryEnvironmentTypeRepository()
-		log.Println("using in-memory repository with default seed data")
+		envTypeRepo = persistence.NewMemoryEnvironmentTypeRepository()
+		envRepo = persistence.NewMemoryEnvironmentRepository()
+		log.Println("using in-memory repositories with default seed data")
 	}
 
-	// 2. Application use case setup
-	envTypeUseCase := usecase.NewEnvironmentTypeUseCase(repo)
+	// 2. Application use cases setup
+	envTypeUseCase := usecase.NewEnvironmentTypeUseCase(envTypeRepo)
+	envUseCase := usecase.NewEnvironmentUseCase(envRepo, envTypeRepo)
 
 	// 3. Security middleware setup with strict environment checks
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
@@ -58,9 +63,13 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// Register HU-ENV-001 routes
+	// Register HU-ENV-001 routes (/environment-types)
 	envTypeHandler := httpAdapter.NewEnvironmentTypeHandler(envTypeUseCase)
 	envTypeHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register HU-ENV-002 routes (/training-environments)
+	envHandler := httpAdapter.NewEnvironmentHandler(envUseCase)
+	envHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
 	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
