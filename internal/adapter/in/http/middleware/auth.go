@@ -19,15 +19,15 @@ type contextKey string
 
 const (
 	ClaimsContextKey contextKey = "jwt_claims"
-	DefaultJWTSecret            = "dev-secret-key"
 )
 
 var (
-	errInvalidTokenFormat  = errors.New("invalid token format")
-	errInvalidHeader       = errors.New("invalid token header or unsupported algorithm")
-	errSignatureMismatch   = errors.New("signature mismatch")
-	errTokenExpired        = errors.New("token expired")
-	errTokenNotYetValid    = errors.New("token not yet valid (nbf)")
+	errInvalidTokenFormat = errors.New("invalid token format")
+	errInvalidHeader      = errors.New("invalid token header or unsupported algorithm")
+	errSignatureMismatch  = errors.New("signature mismatch")
+	errTokenExpired       = errors.New("token expired")
+	errTokenNotYetValid   = errors.New("token not yet valid (nbf)")
+	errMissingSecret      = errors.New("JWT secret is unconfigured")
 )
 
 // JWTHeader represents the header of a JWT.
@@ -49,7 +49,7 @@ type JWTClaims struct {
 }
 
 // HasFeature returns true ONLY if the claims explicitly contain the required feature.
-// Note: Role-based bypasses (like ADMIN or *) are NOT allowed per security criteria.
+// Note: Role-based bypasses (like ADMIN or *) are strictly forbidden per security criteria.
 func (c *JWTClaims) HasFeature(requiredFeature string) bool {
 	if requiredFeature == "" {
 		return true
@@ -106,11 +106,9 @@ type AuthMiddleware struct {
 
 // NewAuthMiddleware initializes the auth middleware with a JWT secret.
 func NewAuthMiddleware(secret string) *AuthMiddleware {
-	if strings.TrimSpace(secret) == "" {
-		secret = os.Getenv("JWT_SECRET")
-	}
-	if strings.TrimSpace(secret) == "" {
-		secret = DefaultJWTSecret
+	secret = strings.TrimSpace(secret)
+	if secret == "" {
+		secret = strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	}
 	return &AuthMiddleware{
 		jwtSecret: []byte(secret),
@@ -161,6 +159,10 @@ func (a *AuthMiddleware) RequireFeature(requiredFeature string, next http.Handle
 }
 
 func (a *AuthMiddleware) validateToken(tokenString string) (*JWTClaims, error) {
+	if len(a.jwtSecret) == 0 {
+		return nil, errMissingSecret
+	}
+
 	tokenParts := strings.Split(tokenString, ".")
 	if len(tokenParts) != 3 {
 		return nil, errInvalidTokenFormat
@@ -180,9 +182,6 @@ func (a *AuthMiddleware) validateToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	// 2. Verify HMAC-SHA256 Signature
-	if len(a.jwtSecret) == 0 {
-		return nil, errSignatureMismatch
-	}
 	signingInput := tokenParts[0] + "." + tokenParts[1]
 	h := hmac.New(sha256.New, a.jwtSecret)
 	h.Write([]byte(signingInput))

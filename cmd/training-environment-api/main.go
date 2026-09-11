@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 
@@ -35,8 +36,17 @@ func main() {
 	// 2. Application use case setup
 	envTypeUseCase := usecase.NewEnvironmentTypeUseCase(repo)
 
-	// 3. Security middleware setup
-	jwtSecret := env("JWT_SECRET", "dev-secret-key")
+	// 3. Security middleware setup with strict environment checks
+	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	appEnv := strings.ToLower(env("APP_ENV", env("ENVIRONMENT", env("ENV", "development"))))
+
+	if jwtSecret == "" {
+		if isNonLocalEnv(appEnv) {
+			log.Fatalf("FATAL: JWT_SECRET is mandatory in '%s' environment. Startup aborted.", appEnv)
+		}
+		log.Println("WARNING: JWT_SECRET not configured. Using temporary dev secret for local development only.")
+		jwtSecret = "dev-secret-key"
+	}
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
 	// 4. HTTP Router and Handlers
@@ -53,8 +63,17 @@ func main() {
 	envTypeHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
-	log.Printf("training-environment-service API listening on %s", addr)
+	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
 	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func isNonLocalEnv(e string) bool {
+	switch e {
+	case "qa", "staging", "prod", "production", "main":
+		return true
+	default:
+		return false
+	}
 }
 
 func env(k, d string) string {
