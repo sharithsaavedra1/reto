@@ -22,6 +22,14 @@ func TestEnvironmentType_Validate(t *testing.T) {
 		t.Fatalf("expected valid entity, got error: %v", err)
 	}
 
+	// Valid with exactly 100 UTF-8 multibyte characters (accents and special chars)
+	multibyte100 := strings.Repeat("á", 100)
+	validMultibyte := valid
+	validMultibyte.Name = multibyte100
+	if err := validMultibyte.Validate(); err != nil {
+		t.Fatalf("expected valid 100 multibyte char name, got error: %v", err)
+	}
+
 	// Empty name
 	emptyName := valid
 	emptyName.Name = "   "
@@ -29,21 +37,21 @@ func TestEnvironmentType_Validate(t *testing.T) {
 		t.Fatalf("expected ErrEmptyName, got: %v", err)
 	}
 
-	// Name too long (> 100)
+	// Name too long (> 100 characters)
 	longName := valid
-	longName.Name = strings.Repeat("A", 101)
+	longName.Name = strings.Repeat("á", 101)
 	if err := longName.Validate(); err != model.ErrNameTooLong {
 		t.Fatalf("expected ErrNameTooLong, got: %v", err)
 	}
 
-	// Code too long (> 20)
+	// Code too long (> 20 characters)
 	longCode := valid
 	longCode.Code = strings.Repeat("C", 21)
 	if err := longCode.Validate(); err != model.ErrCodeTooLong {
 		t.Fatalf("expected ErrCodeTooLong, got: %v", err)
 	}
 
-	// Description too long (> 255)
+	// Description too long (> 255 characters)
 	longDesc := valid
 	tooLong := strings.Repeat("D", 256)
 	longDesc.Description = &tooLong

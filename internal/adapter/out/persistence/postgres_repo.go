@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 
+	_ "github.com/lib/pq"
+
 	"github.com/code-sena/design-software-training-environment-service/internal/application/port"
 	"github.com/code-sena/design-software-training-environment-service/internal/application/usecase"
 	"github.com/code-sena/design-software-training-environment-service/internal/domain/model"

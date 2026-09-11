@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 
+	_ "github.com/lib/pq"
+
 	httpAdapter "github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/middleware"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/out/persistence"

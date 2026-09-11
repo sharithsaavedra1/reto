@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/dto"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/middleware"
@@ -54,7 +55,7 @@ func (h *EnvironmentTypeHandler) Create(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Payload validations
+	// Payload validations using UTF-8 character counts
 	trimmedName := strings.TrimSpace(req.Name)
 	trimmedCode := strings.TrimSpace(req.Code)
 
@@ -62,13 +63,13 @@ func (h *EnvironmentTypeHandler) Create(w http.ResponseWriter, r *http.Request) 
 	if trimmedName == "" {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "name", Message: "name is required and cannot be empty"})
 	}
-	if len(trimmedName) > 100 {
+	if utf8.RuneCountInString(trimmedName) > 100 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "name", Message: "name length must not exceed 100 characters"})
 	}
-	if len(trimmedCode) > 20 {
+	if utf8.RuneCountInString(trimmedCode) > 20 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code length must not exceed 20 characters"})
 	}
-	if req.Description != nil && len(*req.Description) > 255 {
+	if req.Description != nil && utf8.RuneCountInString(*req.Description) > 255 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "description", Message: "description length must not exceed 255 characters"})
 	}
 

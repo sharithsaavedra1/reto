@@ -23,6 +23,10 @@ import (
 const testJWTSecret = "test-secret-key-123456"
 
 func createTestToken(features []string, secret string, expired bool) string {
+	return createCustomTestToken(features, nil, 0, secret, expired)
+}
+
+func createCustomTestToken(features []string, roles []string, nbf int64, secret string, expired bool) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 
 	exp := time.Now().Add(1 * time.Hour).Unix()
@@ -31,11 +35,20 @@ func createTestToken(features []string, secret string, expired bool) string {
 	}
 
 	payloadMap := map[string]interface{}{
-		"sub":      "user-123",
-		"features": features,
-		"exp":      exp,
-		"iat":      time.Now().Unix(),
+		"sub": "user-123",
+		"exp": exp,
+		"iat": time.Now().Unix(),
 	}
+	if len(features) > 0 {
+		payloadMap["features"] = features
+	}
+	if len(roles) > 0 {
+		payloadMap["roles"] = roles
+	}
+	if nbf > 0 {
+		payloadMap["nbf"] = nbf
+	}
+
 	payloadBytes, _ := json.Marshal(payloadMap)
 	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
 
@@ -121,6 +134,22 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 		t.Fatalf("unexpected created resource: %+v", created)
 	}
 
+	// Valid creation with 100 Multibyte UTF-8 characters
+	multibyte100 := strings.Repeat("á", 100)
+	multibyteBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
+		Code: "MULTI_CODE",
+		Name: multibyte100,
+	})
+	reqMulti := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(multibyteBody))
+	reqMulti.Header.Set("Authorization", "Bearer "+token)
+	reqMulti.Header.Set("Content-Type", "application/json")
+	recMulti := httptest.NewRecorder()
+	mux.ServeHTTP(recMulti, reqMulti)
+
+	if recMulti.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for 100 multibyte characters, got: %d (%s)", recMulti.Code, recMulti.Body.String())
+	}
+
 	// Duplicate Name conflict (409 Conflict)
 	dupNameBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
 		Code: "OTHER_CODE",
@@ -159,7 +188,7 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 
 	// Invalid payload: code exceeds 20 chars (422 Unprocessable Entity)
 	tooLongCodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
-		Code: strings.Repeat("X", 25),
+		Code: strings.Repeat("X", 21),
 		Name: "Valid Name",
 	})
 	reqTooLong := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(tooLongCodeBody))
@@ -233,7 +262,6 @@ func TestHandler_E4_AuthAndForbidden(t *testing.T) {
 	}
 
 	// Valid JWT but missing required feature (403 FORBIDDEN)
-	// Has only ENV_OTHER, lacks ENV_VIEW
 	tokenWrongFeature := createTestToken([]string{"ENV_OTHER"}, testJWTSecret, false)
 	reqForbidden := httptest.NewRequest(http.MethodGet, "/environment-types", nil)
 	reqForbidden.Header.Set("Authorization", "Bearer "+tokenWrongFeature)
@@ -248,5 +276,40 @@ func TestHandler_E4_AuthAndForbidden(t *testing.T) {
 	_ = json.Unmarshal(recForbidden.Body.Bytes(), &errForbidden)
 	if errForbidden.Error.Code != "FORBIDDEN" {
 		t.Fatalf("expected FORBIDDEN error code, got: %s", errForbidden.Error.Code)
+	}
+
+	// E4 / CA-07: Role ADMIN without specific feature must be rejected with 403 FORBIDDEN (No bypass)
+	tokenAdminNoFeature := createCustomTestToken(nil, []string{"ADMIN"}, 0, testJWTSecret, false)
+	reqAdmin := httptest.NewRequest(http.MethodGet, "/environment-types", nil)
+	reqAdmin.Header.Set("Authorization", "Bearer "+tokenAdminNoFeature)
+	recAdmin := httptest.NewRecorder()
+	mux.ServeHTTP(recAdmin, reqAdmin)
+
+	if recAdmin.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for ADMIN without ENV_VIEW, got: %d (%s)", recAdmin.Code, recAdmin.Body.String())
+	}
+
+	// E4: Token with future nbf (Not Before) must be rejected with 401 UNAUTHENTICATED
+	futureNbf := time.Now().Add(1 * time.Hour).Unix()
+	tokenFutureNbf := createCustomTestToken([]string{"ENV_VIEW"}, nil, futureNbf, testJWTSecret, false)
+	reqNbf := httptest.NewRequest(http.MethodGet, "/environment-types", nil)
+	reqNbf.Header.Set("Authorization", "Bearer "+tokenFutureNbf)
+	recNbf := httptest.NewRecorder()
+	mux.ServeHTTP(recNbf, reqNbf)
+
+	if recNbf.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for token with future nbf, got: %d (%s)", recNbf.Code, recNbf.Body.String())
+	}
+
+	// E4: Tampered signature must be rejected with 401 UNAUTHENTICATED
+	validToken := createTestToken([]string{"ENV_VIEW"}, testJWTSecret, false)
+	tamperedToken := validToken[:len(validToken)-5] + "XXXXX"
+	reqTampered := httptest.NewRequest(http.MethodGet, "/environment-types", nil)
+	reqTampered.Header.Set("Authorization", "Bearer "+tamperedToken)
+	recTampered := httptest.NewRecorder()
+	mux.ServeHTTP(recTampered, reqTampered)
+
+	if recTampered.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized for tampered token, got: %d (%s)", recTampered.Code, recTampered.Body.String())
 	}
 }
