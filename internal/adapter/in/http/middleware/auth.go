@@ -2,14 +2,22 @@ package middleware
 
 import (
 	"context"
+	"crypto"
 	"crypto/hmac"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"io"
+	"math/big"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/response"
@@ -27,13 +35,30 @@ var (
 	errSignatureMismatch  = errors.New("signature mismatch")
 	errTokenExpired       = errors.New("token expired")
 	errTokenNotYetValid   = errors.New("token not yet valid (nbf)")
-	errMissingSecret      = errors.New("JWT secret is unconfigured")
+	errMissingAuthKey     = errors.New("neither JWT secret nor RSA public key/JWKS is configured")
+	errKeyNotFound        = errors.New("signing key not found in JWKS / public key set")
 )
 
 // JWTHeader represents the header of a JWT.
 type JWTHeader struct {
 	Alg string `json:"alg"`
 	Typ string `json:"typ"`
+	Kid string `json:"kid,omitempty"`
+}
+
+// JWK represents a JSON Web Key per RFC 7517.
+type JWK struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	Use string `json:"use"`
+	Alg string `json:"alg"`
+	N   string `json:"n"`
+	E   string `json:"e"`
+}
+
+// JWKS represents a JSON Web Key Set per RFC 7517.
+type JWKS struct {
+	Keys []JWK `json:"keys"`
 }
 
 // JWTClaims represents standard claims payload in the token.
@@ -99,23 +124,157 @@ func (c *JWTClaims) HasFeature(requiredFeature string) bool {
 	return false
 }
 
-// AuthMiddleware validates JWT authentication and authorization.
+// AuthMiddleware validates JWT authentication and authorization supporting RS256 (via IAM JWKS / RSA Public Key)
+// and HS256 (for local development/testing fallback).
 type AuthMiddleware struct {
-	jwtSecret []byte
+	mu           sync.RWMutex
+	jwtSecret    []byte
+	rsaPublicKey *rsa.PublicKey
+	jwksKeys     map[string]*rsa.PublicKey
+	jwksURL      string
 }
 
-// NewAuthMiddleware initializes the auth middleware with a JWT secret.
+// NewAuthMiddleware initializes the auth middleware, automatically inspecting environment variables
+// (JWT_PUBLIC_KEY, JWKS_JSON, JWKS_URL, JWT_SECRET).
 func NewAuthMiddleware(secret string) *AuthMiddleware {
+	m := &AuthMiddleware{
+		jwksKeys: make(map[string]*rsa.PublicKey),
+	}
+
 	secret = strings.TrimSpace(secret)
-	if secret == "" {
-		secret = strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	if secret != "" {
+		m.jwtSecret = []byte(secret)
+	} else if envSecret := strings.TrimSpace(os.Getenv("JWT_SECRET")); envSecret != "" {
+		m.jwtSecret = []byte(envSecret)
 	}
-	return &AuthMiddleware{
-		jwtSecret: []byte(secret),
+
+	// 1. Check for RSA Public Key PEM via environment variable
+	if pemStr := strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY")); pemStr != "" {
+		_ = m.LoadRSAPublicKeyPEM([]byte(pemStr))
 	}
+
+	// 2. Check for JWKS JSON via environment variable
+	if jwksJSON := strings.TrimSpace(os.Getenv("JWKS_JSON")); jwksJSON != "" {
+		_ = m.LoadJWKSJSON([]byte(jwksJSON))
+	}
+
+	// 3. Check for JWKS URL
+	if jwksURL := strings.TrimSpace(os.Getenv("JWKS_URL")); jwksURL != "" {
+		m.jwksURL = jwksURL
+		_ = m.FetchJWKSFromURL(jwksURL)
+	}
+
+	return m
 }
 
-// RequireFeature wraps an http.HandlerFunc ensuring the caller has a valid JWT and the exact required feature.
+// NewAuthMiddlewareWithRSAPublicKey creates an AuthMiddleware with a specific RSA Public Key for RS256.
+func NewAuthMiddlewareWithRSAPublicKey(pubKey *rsa.PublicKey) *AuthMiddleware {
+	m := &AuthMiddleware{
+		rsaPublicKey: pubKey,
+		jwksKeys:     make(map[string]*rsa.PublicKey),
+	}
+	return m
+}
+
+// SetRSAPublicKey sets the default RSA Public Key for RS256 verification.
+func (a *AuthMiddleware) SetRSAPublicKey(pubKey *rsa.PublicKey) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.rsaPublicKey = pubKey
+}
+
+// LoadRSAPublicKeyPEM parses a PEM-encoded PKIX or PKCS1 RSA Public Key.
+func (a *AuthMiddleware) LoadRSAPublicKeyPEM(pemData []byte) error {
+	block, _ := pem.Decode(pemData)
+	if block == nil {
+		return errors.New("failed to parse PEM block containing public key")
+	}
+
+	// Try PKIX (SubjectPublicKeyInfo)
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err == nil {
+		if rsaPub, ok := pub.(*rsa.PublicKey); ok {
+			a.SetRSAPublicKey(rsaPub)
+			return nil
+		}
+		return errors.New("parsed key is not an RSA public key")
+	}
+
+	// Try PKCS#1 RSA Public Key
+	rsaPub, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	if err == nil {
+		a.SetRSAPublicKey(rsaPub)
+		return nil
+	}
+
+	return fmt.Errorf("unable to parse RSA public key: %w", err)
+}
+
+// LoadJWKSJSON parses a JWKS JSON byte slice and loads all RSA public keys indexed by kid.
+func (a *AuthMiddleware) LoadJWKSJSON(jwksData []byte) error {
+	var jwks JWKS
+	if err := json.Unmarshal(jwksData, &jwks); err != nil {
+		return fmt.Errorf("invalid JWKS JSON: %w", err)
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for _, k := range jwks.Keys {
+		if strings.ToUpper(k.Kty) != "RSA" {
+			continue
+		}
+		pubKey, err := parseJWKRSAKey(k)
+		if err == nil && pubKey != nil {
+			if k.Kid != "" {
+				a.jwksKeys[k.Kid] = pubKey
+			}
+			if a.rsaPublicKey == nil {
+				a.rsaPublicKey = pubKey
+			}
+		}
+	}
+	return nil
+}
+
+// FetchJWKSFromURL fetches JWKS keys from the IAM JWKS endpoint.
+func (a *AuthMiddleware) FetchJWKSFromURL(url string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("failed to fetch JWKS from url: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read JWKS body: %w", err)
+	}
+	return a.LoadJWKSJSON(body)
+}
+
+func parseJWKRSAKey(k JWK) (*rsa.PublicKey, error) {
+	nBytes, err := decodeBase64URL(k.N)
+	if err != nil {
+		return nil, fmt.Errorf("invalid modulus n: %w", err)
+	}
+	eBytes, err := decodeBase64URL(k.E)
+	if err != nil {
+		return nil, fmt.Errorf("invalid exponent e: %w", err)
+	}
+
+	var eInt int
+	for _, b := range eBytes {
+		eInt = (eInt << 8) | int(b)
+	}
+
+	return &rsa.PublicKey{
+		N: new(big.Int).SetBytes(nBytes),
+		E: eInt,
+	}, nil
+}
+
+// RequireFeature wraps an http.HandlerFunc ensuring the caller has a valid JWT (RS256/HS256) and the required feature.
 func (a *AuthMiddleware) RequireFeature(requiredFeature string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -159,10 +318,6 @@ func (a *AuthMiddleware) RequireFeature(requiredFeature string, next http.Handle
 }
 
 func (a *AuthMiddleware) validateToken(tokenString string) (*JWTClaims, error) {
-	if len(a.jwtSecret) == 0 {
-		return nil, errMissingSecret
-	}
-
 	tokenParts := strings.Split(tokenString, ".")
 	if len(tokenParts) != 3 {
 		return nil, errInvalidTokenFormat
@@ -177,18 +332,49 @@ func (a *AuthMiddleware) validateToken(tokenString string) (*JWTClaims, error) {
 	if err := json.Unmarshal(headerJSON, &header); err != nil {
 		return nil, errInvalidHeader
 	}
-	if !strings.EqualFold(header.Alg, "HS256") {
-		return nil, errInvalidHeader
-	}
 
-	// 2. Verify HMAC-SHA256 Signature
 	signingInput := tokenParts[0] + "." + tokenParts[1]
-	h := hmac.New(sha256.New, a.jwtSecret)
-	h.Write([]byte(signingInput))
-	expectedSig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	alg := strings.ToUpper(strings.TrimSpace(header.Alg))
 
-	if !hmac.Equal([]byte(expectedSig), []byte(tokenParts[2])) {
-		return nil, errSignatureMismatch
+	// 2. Verify Signature based on algorithm
+	switch alg {
+	case "RS256":
+		// IAM Governance standard (Asymmetric RSA signature)
+		pubKey := a.resolveRSAPublicKey(header.Kid)
+		if pubKey == nil {
+			return nil, errKeyNotFound
+		}
+
+		sigBytes, err := decodeBase64URL(tokenParts[2])
+		if err != nil {
+			return nil, errInvalidTokenFormat
+		}
+
+		hash := sha256.Sum256([]byte(signingInput))
+		if err := rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hash[:], sigBytes); err != nil {
+			return nil, errSignatureMismatch
+		}
+
+	case "HS256":
+		// Local development / testing fallback (Symmetric HMAC-SHA256)
+		a.mu.RLock()
+		secret := a.jwtSecret
+		a.mu.RUnlock()
+
+		if len(secret) == 0 {
+			return nil, errMissingAuthKey
+		}
+
+		h := hmac.New(sha256.New, secret)
+		h.Write([]byte(signingInput))
+		expectedSig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+
+		if !hmac.Equal([]byte(expectedSig), []byte(tokenParts[2])) {
+			return nil, errSignatureMismatch
+		}
+
+	default:
+		return nil, errInvalidHeader
 	}
 
 	// 3. Decode & Validate Claims Payload
@@ -215,6 +401,18 @@ func (a *AuthMiddleware) validateToken(tokenString string) (*JWTClaims, error) {
 	}
 
 	return &claims, nil
+}
+
+func (a *AuthMiddleware) resolveRSAPublicKey(kid string) *rsa.PublicKey {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if kid != "" {
+		if k, ok := a.jwksKeys[kid]; ok {
+			return k
+		}
+	}
+	return a.rsaPublicKey
 }
 
 func decodeBase64URL(s string) ([]byte, error) {
