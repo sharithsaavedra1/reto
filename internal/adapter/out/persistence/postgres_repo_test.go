@@ -80,7 +80,7 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 	}
 	dupErr := repo.Save(ctx, dupEntity)
-	if dupErr != usecase.ErrEnvironmentTypeAlreadyExists {
-		t.Fatalf("expected ErrEnvironmentTypeAlreadyExists for duplicate code, got: %v", dupErr)
+	if dupErr != usecase.ErrConflictCode && dupErr != usecase.ErrConflictName {
+		t.Fatalf("expected ErrConflictCode or ErrConflictName for duplicate code, got: %v", dupErr)
 	}
 }

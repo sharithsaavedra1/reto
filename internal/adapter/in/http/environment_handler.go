@@ -84,10 +84,10 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if req.Location != nil && utf8.RuneCountInString(*req.Location) > 200 {
+	if req.Location != nil && utf8.RuneCountInString(*req.Location) > 150 {
 		validationDetails = append(validationDetails, response.ErrorDetail{
 			Field:   "location",
-			Message: "location length must not exceed 200 characters",
+			Message: "location length must not exceed 150 characters",
 		})
 	}
 
@@ -114,7 +114,7 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if errors.Is(err, model.ErrInvalidCapacity) || errors.Is(err, model.ErrEmptyEnvironmentName) || errors.Is(err, model.ErrEnvironmentNameTooLong) || errors.Is(err, model.ErrLocationTooLong) {
+		if errors.Is(err, model.ErrInvalidCapacity) || errors.Is(err, model.ErrEmptyEnvironmentName) || errors.Is(err, model.ErrEnvironmentNameTooLong) || errors.Is(err, model.ErrLocationTooLong) || errors.Is(err, usecase.ErrValidation) {
 			response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
 			return
 		}

@@ -44,6 +44,12 @@ func (r *PostgresEnvironmentRepository) Save(ctx context.Context, entity *model.
 		if strings.Contains(errMsg, "fk_environment_environment_type") || strings.Contains(errMsg, "23503") {
 			return usecase.ErrInvalidEnvironmentType
 		}
+		if strings.Contains(errMsg, "chk_environment_capacity") || strings.Contains(errMsg, "23514") {
+			return model.ErrInvalidCapacity
+		}
+		if strings.Contains(errMsg, "value too long") || strings.Contains(errMsg, "22001") || strings.Contains(errMsg, "string_data_right_truncation") {
+			return model.ErrLocationTooLong
+		}
 		return err
 	}
 	return nil
