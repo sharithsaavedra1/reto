@@ -3,8 +3,11 @@ package http
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/dto"
@@ -158,11 +161,138 @@ func (h *EnvironmentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 // List handles GET /training-environments.
 func (h *EnvironmentHandler) List(w http.ResponseWriter, r *http.Request) {
-	items, err := h.useCase.List(r.Context())
+	query, err := parseEnvironmentListQuery(r)
 	if err != nil {
+		parameterErr, ok := err.(*queryParameterError)
+		if !ok {
+			parameterErr = &queryParameterError{field: "query", msg: err.Error()}
+		}
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "invalid training environment query", []response.ErrorDetail{
+			{Field: parameterErr.field, Message: parameterErr.Error()},
+		})
+		return
+	}
+
+	page, err := h.useCase.Query(r.Context(), query)
+	if err != nil {
+		if errors.Is(err, usecase.ErrInvalidEnvironmentQuery) {
+			response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "invalid training environment query", nil)
+			return
+		}
 		response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "failed to retrieve training environments", nil)
 		return
 	}
 
-	response.WriteJSON(w, http.StatusOK, dto.FromEnvironmentModelList(items))
+	response.WriteJSON(w, http.StatusOK, dto.FromEnvironmentPage(*page))
+}
+
+type queryParameterError struct {
+	field string
+	msg   string
+}
+
+func (e *queryParameterError) Error() string { return e.msg }
+
+func parseEnvironmentListQuery(r *http.Request) (port.EnvironmentListQuery, error) {
+	values := r.URL.Query()
+	query := port.EnvironmentListQuery{Page: 1, PageSize: 20, SortField: "created_at"}
+
+	if raw, ok := values["page"]; ok {
+		page, err := strconv.Atoi(firstQueryValue(raw))
+		if err != nil || page < 1 {
+			return query, &queryParameterError{field: "page", msg: "page must be an integer greater than 0"}
+		}
+		query.Page = page
+	}
+	if raw, ok := values["page_size"]; ok {
+		pageSize, err := strconv.Atoi(firstQueryValue(raw))
+		if err != nil || pageSize < 1 || pageSize > 100 {
+			return query, &queryParameterError{field: "page_size", msg: "page_size must be an integer between 1 and 100"}
+		}
+		query.PageSize = pageSize
+	}
+
+	if raw, ok := values["sort"]; ok {
+		parts := strings.Split(firstQueryValue(raw), ":")
+		if len(parts) != 2 || (parts[1] != "asc" && parts[1] != "desc") {
+			return query, &queryParameterError{field: "sort", msg: "sort must use the format <field>:<asc|desc>"}
+		}
+		query.SortField = parts[0]
+		query.SortDescending = parts[1] == "desc"
+	}
+
+	if raw, ok := values["environment_type_id"]; ok {
+		query.EnvironmentTypeID = strings.TrimSpace(firstQueryValue(raw))
+		if !model.IsValidUUID(query.EnvironmentTypeID) {
+			return query, &queryParameterError{field: "environment_type_id", msg: "environment_type_id must be a valid RFC 4122 UUID"}
+		}
+	}
+	if raw, ok := values["training_center_id"]; ok {
+		query.TrainingCenterID = strings.TrimSpace(firstQueryValue(raw))
+		if !model.IsValidUUID(query.TrainingCenterID) {
+			return query, &queryParameterError{field: "training_center_id", msg: "training_center_id must be a valid RFC 4122 UUID"}
+		}
+	}
+	if raw, ok := values["is_active"]; ok {
+		active, err := strconv.ParseBool(firstQueryValue(raw))
+		if err != nil {
+			return query, &queryParameterError{field: "is_active", msg: "is_active must be a boolean"}
+		}
+		query.IsActive = &active
+	}
+
+	dateRaw, dateOK := values["available_date"]
+	startRaw, startOK := values["available_start_time"]
+	endRaw, endOK := values["available_end_time"]
+	present := 0
+	if dateOK {
+		present++
+	}
+	if startOK {
+		present++
+	}
+	if endOK {
+		present++
+	}
+	if present != 0 && present != 3 {
+		return query, &queryParameterError{field: "available_date", msg: "available_date, available_start_time and available_end_time must be provided together"}
+	}
+	if present == 3 {
+		date, err := time.Parse(time.DateOnly, firstQueryValue(dateRaw))
+		if err != nil {
+			return query, &queryParameterError{field: "available_date", msg: "available_date must use YYYY-MM-DD"}
+		}
+		start, err := parseAvailabilityTime(firstQueryValue(startRaw))
+		if err != nil {
+			return query, &queryParameterError{field: "available_start_time", msg: "available_start_time must use HH:MM or HH:MM:SS"}
+		}
+		end, err := parseAvailabilityTime(firstQueryValue(endRaw))
+		if err != nil {
+			return query, &queryParameterError{field: "available_end_time", msg: "available_end_time must use HH:MM or HH:MM:SS"}
+		}
+		if !start.Before(end) {
+			return query, &queryParameterError{field: "available_end_time", msg: "available_end_time must be after available_start_time"}
+		}
+		query.AvailableDate = &date
+		query.AvailableStart = &start
+		query.AvailableEnd = &end
+	}
+
+	return query, nil
+}
+
+func firstQueryValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func parseAvailabilityTime(value string) (time.Time, error) {
+	for _, layout := range []string{"15:04", "15:04:05"} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("invalid time")
 }

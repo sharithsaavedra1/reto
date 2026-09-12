@@ -3,6 +3,7 @@ package dto
 import (
 	"time"
 
+	"github.com/code-sena/design-software-training-environment-service/internal/application/port"
 	"github.com/code-sena/design-software-training-environment-service/internal/domain/model"
 )
 
@@ -28,6 +29,20 @@ type EnvironmentResponse struct {
 	UpdatedAt         string  `json:"updated_at"`
 }
 
+// EnvironmentListResponse is the contract envelope for paginated collections.
+type EnvironmentListResponse struct {
+	Data       []EnvironmentResponse `json:"data"`
+	Pagination PaginationResponse    `json:"pagination"`
+}
+
+// PaginationResponse follows the shared offset-pagination contract.
+type PaginationResponse struct {
+	Page       int `json:"page"`
+	PageSize   int `json:"page_size"`
+	TotalItems int `json:"total_items"`
+	TotalPages int `json:"total_pages"`
+}
+
 // FromEnvironmentModel converts a domain Environment entity to an EnvironmentResponse DTO.
 func FromEnvironmentModel(m model.Environment) EnvironmentResponse {
 	return EnvironmentResponse{
@@ -50,4 +65,12 @@ func FromEnvironmentModelList(list []model.Environment) []EnvironmentResponse {
 		res[i] = FromEnvironmentModel(item)
 	}
 	return res
+}
+
+// FromEnvironmentPage converts the application result into the HTTP contract.
+func FromEnvironmentPage(page port.EnvironmentPage) EnvironmentListResponse {
+	return EnvironmentListResponse{
+		Data:       FromEnvironmentModelList(page.Items),
+		Pagination: PaginationResponse{Page: page.Page, PageSize: page.PageSize, TotalItems: page.TotalItems, TotalPages: page.TotalPages},
+	}
 }

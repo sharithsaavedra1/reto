@@ -290,3 +290,92 @@ func TestEnvironmentHandler_Security(t *testing.T) {
 		t.Fatalf("expected 403 Forbidden, got: %d (%s)", recWrongPerm.Code, recWrongPerm.Body.String())
 	}
 }
+
+func TestEnvironmentHandler_HU003_ListPaginationAndFilters(t *testing.T) {
+	mux := setupEnvironmentTestServer()
+	token := createTestToken([]string{"ENV_VIEW"}, testJWTSecret, false)
+
+	request := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	rec := request("/training-environments?page=1&page_size=1&sort=name:asc")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for paginated list, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+	var page dto.EnvironmentListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("failed to decode paginated response: %v", err)
+	}
+	if len(page.Data) != 1 || page.Pagination.Page != 1 || page.Pagination.PageSize != 1 || page.Pagination.TotalItems != 2 || page.Pagination.TotalPages != 2 {
+		t.Fatalf("unexpected pagination response: %+v", page)
+	}
+	if page.Data[0].Name != "Aula 101 - Informática" {
+		t.Fatalf("expected ascending name order, got: %+v", page.Data[0])
+	}
+
+	rec = request("/training-environments?environment_type_id=347d47f9-1ba5-4b9c-89b7-892112a23d90&training_center_id=c1d2e3f4-a5b6-7890-1234-56789abcdef0&is_active=true")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for combined filters, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("failed to decode filtered response: %v", err)
+	}
+	if len(page.Data) != 1 || page.Data[0].EnvironmentTypeID != "347d47f9-1ba5-4b9c-89b7-892112a23d90" {
+		t.Fatalf("unexpected AND filter response: %+v", page.Data)
+	}
+
+	for _, invalid := range []string{"/training-environments?page_size=0", "/training-environments?page_size=101"} {
+		rec = request(invalid)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("expected 422 for %s, got: %d (%s)", invalid, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestEnvironmentHandler_HU003_AvailabilityWindow(t *testing.T) {
+	mux := setupEnvironmentTestServer()
+	token := createTestToken([]string{"ENV_VIEW"}, testJWTSecret, false)
+	request := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// The second seed is under maintenance on this date; the first remains available.
+	rec := request("/training-environments?available_date=2026-09-15&available_start_time=09:00&available_end_time=10:00")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for availability query, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+	var page dto.EnvironmentListResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("failed to decode availability response: %v", err)
+	}
+	if len(page.Data) != 1 || page.Data[0].ID != "78901234-5678-9012-3456-789012345678" {
+		t.Fatalf("unexpected availability response: %+v", page.Data)
+	}
+
+	// A partial availability window is rejected instead of being interpreted ambiguously.
+	rec = request("/training-environments?available_date=2026-09-15&available_start_time=09:00")
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for incomplete availability window, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	// The first seed has a pending reservation on this date and time.
+	rec = request("/training-environments?available_date=2026-09-16&available_start_time=10:30&available_end_time=11:00")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for reservation availability query, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("failed to decode reservation availability response: %v", err)
+	}
+	if len(page.Data) != 1 || page.Data[0].ID != "89012345-6789-0123-4567-890123456789" {
+		t.Fatalf("expected only the second environment after reservation filtering, got: %+v", page.Data)
+	}
+}
