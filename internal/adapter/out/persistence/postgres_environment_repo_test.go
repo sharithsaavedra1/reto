@@ -51,7 +51,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Ensure schema & table exists for integration testing with VARCHAR(150) location
+	// Ensure schema & table exists for integration testing with VARCHAR(200) location per official API contract
 	_, err := db.ExecContext(ctx, `
 		CREATE SCHEMA IF NOT EXISTS training_environment;
 		CREATE TABLE IF NOT EXISTS training_environment.environment_type (
@@ -67,7 +67,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 			training_center_id VARCHAR(36) NOT NULL,
 			name VARCHAR(100) NOT NULL,
 			capacity INT NOT NULL,
-			location VARCHAR(150),
+			location VARCHAR(200),
 			is_active BOOLEAN NOT NULL DEFAULT TRUE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -160,25 +160,25 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 		t.Fatalf("expected ErrInvalidEnvironmentType, got: %v", fkErr)
 	}
 
-	// 6. Test location limit of 150 runes (succeeds)
-	loc150 := strings.Repeat("L", 150)
+	// 6. Test location limit of 200 runes (succeeds per official API contract)
+	loc200 := strings.Repeat("L", 200)
 	limitLocEntity := &model.Environment{
 		ID:                "c3d4e5f6-a7b8-9012-cdef-123456789012",
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
-		Name:              "Ambiente Ubicacion 150",
+		Name:              "Ambiente Ubicacion 200",
 		Capacity:          25,
-		Location:          &loc150,
+		Location:          &loc200,
 		IsActive:          true,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
 	if err := repo.Save(ctx, limitLocEntity); err != nil {
-		t.Fatalf("failed to save environment with 150 rune location: %v", err)
+		t.Fatalf("failed to save environment with 200 rune location: %v", err)
 	}
 
-	// 7. Test location exceeding 150 characters mapped to ErrLocationTooLong (22001)
-	locExceeded := strings.Repeat("X", 160)
+	// 7. Test location exceeding 200 characters mapped to ErrLocationTooLong (22001)
+	locExceeded := strings.Repeat("X", 210)
 	tooLongLocEntity := &model.Environment{
 		ID:                "d4e5f6a7-b8c9-0123-def1-234567890123",
 		EnvironmentTypeID: typeID,
@@ -192,7 +192,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 	}
 	longErr := repo.Save(ctx, tooLongLocEntity)
 	if longErr != model.ErrLocationTooLong {
-		t.Fatalf("expected ErrLocationTooLong for > 150 characters, got: %v", longErr)
+		t.Fatalf("expected ErrLocationTooLong for > 200 characters, got: %v", longErr)
 	}
 
 	// 8. Test CHECK Constraint on capacity <= 0 mapped to ErrInvalidCapacity (23514)

@@ -13,7 +13,7 @@ var (
 	ErrEmptyEnvironmentName     = errors.New("name cannot be empty")
 	ErrEnvironmentNameTooLong   = errors.New("name must be at most 100 characters")
 	ErrInvalidCapacity          = errors.New("capacity must be a positive integer greater than 0")
-	ErrLocationTooLong          = errors.New("location must be at most 150 characters")
+	ErrLocationTooLong          = errors.New("location must be at most 200 characters")
 )
 
 // IsValidUUID checks if the string is a valid RFC 4122 UUID (8-4-4-4-12 hexadecimal string).
@@ -76,7 +76,7 @@ func (e *Environment) Validate() error {
 		return ErrInvalidCapacity
 	}
 
-	if e.Location != nil && utf8.RuneCountInString(*e.Location) > 150 {
+	if e.Location != nil && utf8.RuneCountInString(*e.Location) > 200 {
 		return ErrLocationTooLong
 	}
 
