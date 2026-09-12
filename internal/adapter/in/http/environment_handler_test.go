@@ -157,6 +157,23 @@ func TestEnvironmentHandler_E2_PayloadValidation(t *testing.T) {
 	if recMulti.Code != http.StatusCreated {
 		t.Fatalf("expected 201 Created for 100 rune name, got: %d (%s)", recMulti.Code, recMulti.Body.String())
 	}
+
+	// 6. Malformed UUID (36 non-hex chars like 'x's) -> 422 Unprocessable Entity
+	malformedUUIDBody, _ := json.Marshal(dto.CreateEnvironmentRequest{
+		EnvironmentTypeID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+		TrainingCenterID:  "yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy",
+		Name:              "Aula UUID Malformado",
+		Capacity:          20,
+	})
+	reqMalformedUUID := httptest.NewRequest(http.MethodPost, "/training-environments", bytes.NewReader(malformedUUIDBody))
+	reqMalformedUUID.Header.Set("Authorization", "Bearer "+token)
+	reqMalformedUUID.Header.Set("Content-Type", "application/json")
+	recMalformedUUID := httptest.NewRecorder()
+	mux.ServeHTTP(recMalformedUUID, reqMalformedUUID)
+
+	if recMalformedUUID.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for malformed UUID (36 'x's), got: %d (%s)", recMalformedUUID.Code, recMalformedUUID.Body.String())
+	}
 }
 
 // E3: Invalid / non-existing environment_type_id returns 422 Unprocessable Entity

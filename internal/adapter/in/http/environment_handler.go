@@ -50,17 +50,17 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	var validationDetails []response.ErrorDetail
 
-	if trimmedTypeID == "" || len(trimmedTypeID) < 32 {
+	if !model.IsValidUUID(trimmedTypeID) {
 		validationDetails = append(validationDetails, response.ErrorDetail{
 			Field:   "environment_type_id",
-			Message: "environment_type_id is required and must be a valid UUID",
+			Message: "environment_type_id is required and must be a valid RFC 4122 UUID",
 		})
 	}
 
-	if trimmedCenterID == "" || len(trimmedCenterID) < 32 {
+	if !model.IsValidUUID(trimmedCenterID) {
 		validationDetails = append(validationDetails, response.ErrorDetail{
 			Field:   "training_center_id",
-			Message: "training_center_id is required and must be a valid UUID",
+			Message: "training_center_id is required and must be a valid RFC 4122 UUID",
 		})
 	}
 

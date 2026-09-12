@@ -41,15 +41,18 @@ func main() {
 	envTypeUseCase := usecase.NewEnvironmentTypeUseCase(envTypeRepo)
 	envUseCase := usecase.NewEnvironmentUseCase(envRepo, envTypeRepo)
 
-	// 3. Security middleware setup with strict environment checks
+	// 3. Security middleware setup with strict environment checks (RS256 / JWKS IAM Governance & HS256 dev fallback)
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
+	jwtPublicKey := strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY"))
+	jwksURL := strings.TrimSpace(os.Getenv("JWKS_URL"))
+	jwksJSON := strings.TrimSpace(os.Getenv("JWKS_JSON"))
 	appEnv := strings.ToLower(env("APP_ENV", env("ENVIRONMENT", env("ENV", "development"))))
 
-	if jwtSecret == "" {
+	if jwtSecret == "" && jwtPublicKey == "" && jwksURL == "" && jwksJSON == "" {
 		if isNonLocalEnv(appEnv) {
-			log.Fatalf("FATAL: JWT_SECRET is mandatory in '%s' environment. Startup aborted.", appEnv)
+			log.Fatalf("FATAL: Authentication configuration (JWT_PUBLIC_KEY, JWKS_URL, or JWT_SECRET) is mandatory in '%s' environment. Startup aborted.", appEnv)
 		}
-		log.Println("WARNING: JWT_SECRET not configured. Using temporary dev secret for local development only.")
+		log.Println("WARNING: No JWT key configured. Using temporary dev secret for local development only.")
 		jwtSecret = "dev-secret-key"
 	}
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
