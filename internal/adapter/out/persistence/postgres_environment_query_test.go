@@ -69,7 +69,7 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			ON training_environment.reservation (environment_id, reservation_date);
 	`)
 	if err != nil {
-		t.Skipf("Skipping PostgreSQL query integration test: unable to prepare tables: %v", err)
+		skipOrFailPostgres(t, "unable to prepare PostgreSQL query integration tables: %v", err)
 		return
 	}
 
@@ -110,7 +110,7 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 		if _, err := db.ExecContext(ctx, `
 			INSERT INTO training_environment.availability_rule
 			(id, environment_id, day_of_week, start_time, end_time, effective_from, effective_until)
-			VALUES ($1, $2, 2, '08:00', '18:00', '2020-01-01', NULL)`, environment.ruleID, environment.id); err != nil {
+			VALUES ($1, $2, 2, '08:00', '18:00', '2020-01-01', '2026-09-15')`, environment.ruleID, environment.id); err != nil {
 			t.Fatalf("failed to insert availability rule: %v", err)
 		}
 	}
@@ -124,7 +124,7 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO training_environment.reservation
 		(id, environment_id, reservation_date, start_time, end_time, status)
-		VALUES ($1, $2, '2026-09-16', '10:00', '12:00', 'PENDING')`, reservationID, envAvailableID); err != nil {
+		VALUES ($1, $2, '2026-09-15', '10:00', '12:00', 'PENDING')`, reservationID, envAvailableID); err != nil {
 		t.Fatalf("failed to insert reservation fixture: %v", err)
 	}
 	t.Cleanup(func() {
@@ -155,7 +155,7 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 		t.Fatalf("expected only the environment without maintenance, got: %+v", page)
 	}
 
-	date = time.Date(2026, time.September, 16, 0, 0, 0, 0, time.UTC)
+	date = time.Date(2026, time.September, 15, 0, 0, 0, 0, time.UTC)
 	start = time.Date(0, time.January, 1, 10, 30, 0, 0, time.UTC)
 	end = time.Date(0, time.January, 1, 11, 0, 0, 0, time.UTC)
 	page, err = repo.Query(ctx, port.EnvironmentListQuery{

@@ -21,13 +21,13 @@ func getTestPostgresDB(t *testing.T) *sql.DB {
 		dbURL = os.Getenv("DATABASE_URL")
 	}
 	if dbURL == "" {
-		t.Skip("Skipping PostgreSQL integration test: DATABASE_URL / TEST_DATABASE_URL not set")
+		skipOrFailPostgres(t, "PostgreSQL integration requires TEST_DATABASE_URL or DATABASE_URL")
 		return nil
 	}
 
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		t.Skipf("Skipping PostgreSQL integration test: unable to open connection: %v", err)
+		skipOrFailPostgres(t, "unable to open PostgreSQL integration connection: %v", err)
 		return nil
 	}
 
@@ -35,10 +35,44 @@ func getTestPostgresDB(t *testing.T) *sql.DB {
 	defer cancel()
 
 	if err := db.PingContext(ctx); err != nil {
-		t.Skipf("Skipping PostgreSQL integration test: ping failed: %v", err)
+		db.Close()
+		skipOrFailPostgres(t, "PostgreSQL integration ping failed: %v", err)
 		return nil
 	}
 
+	return db
+}
+
+func skipOrFailPostgres(t *testing.T, format string, args ...interface{}) {
+	t.Helper()
+	if os.Getenv("REQUIRE_POSTGRES_INTEGRATION") == "1" {
+		t.Fatalf(format, args...)
+		return
+	}
+	t.Skipf("Skipping PostgreSQL integration test: "+format, args...)
+}
+
+func getRequiredTestPostgresDB(t *testing.T) *sql.DB {
+	t.Helper()
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		t.Fatal("performance measurement requires TEST_DATABASE_URL or DATABASE_URL")
+	}
+
+	db, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Fatalf("unable to open PostgreSQL performance connection: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		t.Fatalf("PostgreSQL performance connection ping failed: %v", err)
+	}
 	return db
 }
 
@@ -76,7 +110,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 		);
 	`)
 	if err != nil {
-		t.Skipf("Skipping PostgreSQL integration test: unable to prepare tables: %v", err)
+		skipOrFailPostgres(t, "unable to prepare PostgreSQL integration tables: %v", err)
 		return
 	}
 

@@ -218,7 +218,7 @@ func (r *MemoryEnvironmentRepository) isAvailable(environmentID string, query po
 	for _, rule := range r.rules {
 		if rule.environmentID == environmentID && rule.dayOfWeek == dayOfWeek &&
 			!date.Before(dateOnly(rule.effectiveFrom)) &&
-			(rule.effectiveUntil == nil || date.Before(dateOnly(*rule.effectiveUntil))) &&
+			(rule.effectiveUntil == nil || !date.After(dateOnly(*rule.effectiveUntil))) &&
 			rule.start <= requestedStart && rule.end >= requestedEnd {
 			hasRule = true
 			break
