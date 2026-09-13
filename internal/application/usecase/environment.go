@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	ErrEnvironmentNotFound    = errors.New("training environment not found")
-	ErrInvalidEnvironmentType = errors.New("referenced environment_type_id does not exist")
+	ErrEnvironmentNotFound     = errors.New("training environment not found")
+	ErrInvalidEnvironmentType  = errors.New("referenced environment_type_id does not exist")
+	ErrInvalidEnvironmentQuery = errors.New("invalid training environment query")
 )
 
 type environmentUseCase struct {
@@ -92,4 +93,53 @@ func (u *environmentUseCase) List(ctx context.Context) ([]model.Environment, err
 		items = []model.Environment{}
 	}
 	return items, nil
+}
+
+// Query returns a filtered, sorted and offset-paginated page of environments.
+func (u *environmentUseCase) Query(ctx context.Context, query port.EnvironmentListQuery) (*port.EnvironmentPage, error) {
+	if query.Page == 0 {
+		query.Page = 1
+	}
+	if query.PageSize == 0 {
+		query.PageSize = 20
+	}
+	if query.Page < 1 || query.PageSize < 1 || query.PageSize > 100 {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+
+	if query.EnvironmentTypeID != "" && !model.IsValidUUID(query.EnvironmentTypeID) {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+	if query.TrainingCenterID != "" && !model.IsValidUUID(query.TrainingCenterID) {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+
+	sortFields := map[string]struct{}{
+		"id": {}, "name": {}, "capacity": {}, "created_at": {}, "updated_at": {}, "is_active": {},
+	}
+	if query.SortField == "" {
+		query.SortField = "created_at"
+	}
+	if _, ok := sortFields[query.SortField]; !ok {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+
+	windowParts := 0
+	if query.AvailableDate != nil {
+		windowParts++
+	}
+	if query.AvailableStart != nil {
+		windowParts++
+	}
+	if query.AvailableEnd != nil {
+		windowParts++
+	}
+	if windowParts != 0 && windowParts != 3 {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+	if windowParts == 3 && !query.AvailableStart.Before(*query.AvailableEnd) {
+		return nil, ErrInvalidEnvironmentQuery
+	}
+
+	return u.envRepo.Query(ctx, query)
 }

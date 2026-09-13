@@ -38,6 +38,15 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 
 	desc := "Descripción tipo de prueba"
 	typeID := "d4e5f6a7-8901-2345-6789-012345678901"
+	cleanup := func() {
+		_, _ = db.ExecContext(ctx, `
+			DELETE FROM training_environment.environment_type
+			WHERE id = $1 OR code = $2 OR name = $3
+		`, typeID, "LAB-TEST", "Laboratorio Test IT")
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
 	entity := &model.EnvironmentType{
 		ID:          typeID,
 		Code:        "LAB-TEST",

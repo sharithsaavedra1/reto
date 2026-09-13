@@ -20,4 +20,5 @@ type EnvironmentUseCase interface {
 	Create(ctx context.Context, cmd CreateEnvironmentCommand) (*model.Environment, error)
 	GetByID(ctx context.Context, id string) (*model.Environment, error)
 	List(ctx context.Context) ([]model.Environment, error)
+	Query(ctx context.Context, query EnvironmentListQuery) (*EnvironmentPage, error)
 }

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -128,4 +131,131 @@ func (r *PostgresEnvironmentRepository) FindAll(ctx context.Context) ([]model.En
 		result = []model.Environment{}
 	}
 	return result, nil
+}
+
+// Query returns environments using SQL-side filtering, pagination and
+// availability predicates so PostgreSQL can use the documented indexes.
+func (r *PostgresEnvironmentRepository) Query(ctx context.Context, query port.EnvironmentListQuery) (*port.EnvironmentPage, error) {
+	if query.Page == 0 {
+		query.Page = 1
+	}
+	if query.PageSize == 0 {
+		query.PageSize = 20
+	}
+	if query.Page < 1 || query.PageSize < 1 || query.PageSize > 100 {
+		return nil, errors.New("invalid pagination")
+	}
+
+	where := []string{"1=1"}
+	args := make([]interface{}, 0, 6)
+	addArg := func(clause string, value interface{}) {
+		args = append(args, value)
+		where = append(where, fmt.Sprintf(clause, len(args)))
+	}
+
+	if query.EnvironmentTypeID != "" {
+		addArg("e.environment_type_id = $%d", query.EnvironmentTypeID)
+	}
+	if query.TrainingCenterID != "" {
+		addArg("e.training_center_id = $%d", query.TrainingCenterID)
+	}
+	if query.IsActive != nil {
+		addArg("e.is_active = $%d", *query.IsActive)
+	}
+	if query.AvailableDate != nil && query.AvailableStart != nil && query.AvailableEnd != nil {
+		dateIndex := len(args) + 1
+		startIndex := dateIndex + 1
+		endIndex := dateIndex + 2
+		args = append(args,
+			query.AvailableDate.UTC().Format(time.DateOnly),
+			query.AvailableStart.Format("15:04:05"),
+			query.AvailableEnd.Format("15:04:05"),
+		)
+		where = append(where, fmt.Sprintf(`
+			EXISTS (
+				SELECT 1
+				FROM training_environment.availability_rule ar
+				WHERE ar.environment_id = e.id
+				  AND ar.day_of_week = EXTRACT(ISODOW FROM $%d::date)::smallint
+				  AND ar.start_time <= $%d::time
+				  AND ar.end_time >= $%d::time
+				  AND ar.effective_from <= $%d::date
+				  AND (ar.effective_until IS NULL OR ar.effective_until >= $%d::date)
+			)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM training_environment.maintenance m
+				WHERE m.environment_id = e.id
+				  AND m.start_date < ($%d::date + INTERVAL '1 day')
+				  AND m.end_date > $%d::date
+			)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM training_environment.reservation res
+				WHERE res.environment_id = e.id
+				  AND res.reservation_date = $%d::date
+				  AND res.status <> 'CANCELLED'
+				  AND res.start_time < $%d::time
+				  AND res.end_time > $%d::time
+			)`, dateIndex, startIndex, endIndex, dateIndex, dateIndex, dateIndex, dateIndex, dateIndex, endIndex, startIndex))
+	}
+
+	whereSQL := strings.Join(where, " AND ")
+	countQuery := `SELECT COUNT(*) FROM training_environment.environment e WHERE ` + whereSQL
+	var totalItems int
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&totalItems); err != nil {
+		return nil, err
+	}
+
+	sortColumns := map[string]string{
+		"id":         "e.id",
+		"name":       "e.name",
+		"capacity":   "e.capacity",
+		"created_at": "e.created_at",
+		"updated_at": "e.updated_at",
+		"is_active":  "e.is_active",
+	}
+	sortColumn := sortColumns[query.SortField]
+	if sortColumn == "" {
+		sortColumn = sortColumns["created_at"]
+	}
+	direction := "ASC"
+	if query.SortDescending {
+		direction = "DESC"
+	}
+
+	dataQuery := `
+		SELECT e.id, e.environment_type_id, e.training_center_id, e.name, e.capacity, e.location, e.is_active, e.created_at, e.updated_at
+		FROM training_environment.environment e
+		WHERE ` + whereSQL + `
+		ORDER BY ` + sortColumn + ` ` + direction + `, e.id ASC
+		LIMIT $` + strconv.Itoa(len(args)+1) + ` OFFSET $` + strconv.Itoa(len(args)+2)
+	dataArgs := append(append([]interface{}{}, args...), query.PageSize, (query.Page-1)*query.PageSize)
+	rows, err := r.db.QueryContext(ctx, dataQuery, dataArgs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]model.Environment, 0)
+	for rows.Next() {
+		var item model.Environment
+		var loc sql.NullString
+		if err := rows.Scan(&item.ID, &item.EnvironmentTypeID, &item.TrainingCenterID, &item.Name, &item.Capacity, &loc, &item.IsActive, &item.CreatedAt, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if loc.Valid {
+			item.Location = &loc.String
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	totalPages := 0
+	if totalItems > 0 {
+		totalPages = (totalItems + query.PageSize - 1) / query.PageSize
+	}
+	return &port.EnvironmentPage{Items: items, Page: query.Page, PageSize: query.PageSize, TotalItems: totalItems, TotalPages: totalPages}, nil
 }
