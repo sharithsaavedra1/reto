@@ -117,14 +117,16 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO training_environment.maintenance
-		(id, environment_id, start_date, end_date, reason)
-		VALUES ($1, $2, '2026-09-15', '2026-09-16', 'HU003 maintenance')`, maintenanceID, envBlockedID); err != nil {
+		(id, environment_id, start_date, end_date, reason, created_by)
+		VALUES ($1, $2, '2026-09-15', '2026-09-16', 'HU003 maintenance', $3)`,
+		maintenanceID, envBlockedID, "42c78701-2b34-4a6f-b034-3f7a3eca57d8"); err != nil {
 		t.Fatalf("failed to insert maintenance fixture: %v", err)
 	}
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO training_environment.reservation
-		(id, environment_id, reservation_date, start_time, end_time, status)
-		VALUES ($1, $2, '2026-09-15', '10:00', '12:00', 'PENDING')`, reservationID, envAvailableID); err != nil {
+		(id, environment_id, reservation_date, start_time, end_time, status, requester_id)
+		VALUES ($1, $2, '2026-09-15', '10:00', '12:00', 'PENDING', $3)`,
+		reservationID, envAvailableID, "735a2516-1bad-4528-8f18-450f9b822214"); err != nil {
 		t.Fatalf("failed to insert reservation fixture: %v", err)
 	}
 	t.Cleanup(func() {

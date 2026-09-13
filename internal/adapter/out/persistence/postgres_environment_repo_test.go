@@ -116,6 +116,23 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 
 	// Insert test environment_type seed
 	typeID := "e3f2a1b0-1234-5678-90ab-cdef12345678"
+	environmentIDs := []string{
+		"a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"b2c3d4e5-f6a7-8901-bcde-f12345678901",
+		"c3d4e5f6-a7b8-9012-cdef-123456789012",
+		"d4e5f6a7-b8c9-0123-def1-234567890123",
+		"e5f6a7b8-c9d0-1234-ef12-345678901234",
+	}
+	cleanup := func() {
+		_, _ = db.ExecContext(ctx, `
+			DELETE FROM training_environment.environment
+			WHERE id IN ($1, $2, $3, $4, $5)
+		`, environmentIDs[0], environmentIDs[1], environmentIDs[2], environmentIDs[3], environmentIDs[4])
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment_type WHERE id = $1`, typeID)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
 	_, _ = db.ExecContext(ctx, `
 		INSERT INTO training_environment.environment_type (id, code, name, description)
 		VALUES ($1, 'IT-TEST', 'Tipo Test IT', 'Descripcion Test')
@@ -125,7 +142,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 	repo := persistence.NewPostgresEnvironmentRepository(db)
 
 	loc := "Piso 4, Laboratorio 401"
-	envID := "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+	envID := environmentIDs[0]
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	entity := &model.Environment{
@@ -177,7 +194,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 
 	// 5. Test FK Violation Error Mapping
 	invalidFKEntity := &model.Environment{
-		ID:                "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+		ID:                environmentIDs[1],
 		EnvironmentTypeID: "ffffffff-ffff-ffff-ffff-ffffffffffff", // Non-existent FK
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente con FK Invalida",
@@ -197,7 +214,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 	// 6. Test location limit of 200 runes (succeeds per official API contract)
 	loc200 := strings.Repeat("L", 200)
 	limitLocEntity := &model.Environment{
-		ID:                "c3d4e5f6-a7b8-9012-cdef-123456789012",
+		ID:                environmentIDs[2],
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente Ubicacion 200",
@@ -214,7 +231,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 	// 7. Test location exceeding 200 characters mapped to ErrLocationTooLong (22001)
 	locExceeded := strings.Repeat("X", 210)
 	tooLongLocEntity := &model.Environment{
-		ID:                "d4e5f6a7-b8c9-0123-def1-234567890123",
+		ID:                environmentIDs[3],
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente Ubicacion Excedida",
@@ -231,7 +248,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 
 	// 8. Test CHECK Constraint on capacity <= 0 mapped to ErrInvalidCapacity (23514)
 	invalidCapEntity := &model.Environment{
-		ID:                "e5f6a7b8-c9d0-1234-ef12-345678901234",
+		ID:                environmentIDs[4],
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente Capacidad Invalida",
