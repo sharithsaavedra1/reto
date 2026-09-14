@@ -90,10 +90,10 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if req.Location != nil && utf8.RuneCountInString(*req.Location) > 150 {
+	if req.Location != nil && utf8.RuneCountInString(*req.Location) > model.MaxLocationLength {
 		validationDetails = append(validationDetails, response.ErrorDetail{
 			Field:   "location",
-			Message: "location length must not exceed 150 characters",
+			Message: "location length must not exceed 200 characters",
 		})
 	}
 

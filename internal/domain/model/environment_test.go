@@ -91,19 +91,21 @@ func TestEnvironment_Validate(t *testing.T) {
 		t.Fatalf("expected ErrEnvironmentNameTooLong, got: %v", err)
 	}
 
-	// Location <= 150 runes valid, > 150 runes fails
-	valid150Loc := valid
-	loc150 := strings.Repeat("L", 150)
-	valid150Loc.Location = &loc150
-	if err := valid150Loc.Validate(); err != nil {
-		t.Fatalf("expected valid 150 rune location, got: %v", err)
+	// OpenAPI contract: locations from 150 through 200 runes are valid.
+	for _, length := range []int{150, 151, 199, 200} {
+		validLocation := valid
+		location := strings.Repeat("L", length)
+		validLocation.Location = &location
+		if err := validLocation.Validate(); err != nil {
+			t.Fatalf("expected valid %d rune location, got: %v", length, err)
+		}
 	}
 
-	tooLongLoc := strings.Repeat("L", 151)
+	tooLongLoc := strings.Repeat("L", 201)
 	longLoc := valid
 	longLoc.Location = &tooLongLoc
 	if err := longLoc.Validate(); err != model.ErrLocationTooLong {
-		t.Fatalf("expected ErrLocationTooLong for 151 runes, got: %v", err)
+		t.Fatalf("expected ErrLocationTooLong for 201 runes, got: %v", err)
 	}
 
 	// Invalid EnvironmentTypeID (short or 36 'x's)

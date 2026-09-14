@@ -85,7 +85,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Ensure schema & table exists for integration testing with the existing VARCHAR(150) database schema
+	// Ensure schema & table exists for integration testing with the OpenAPI VARCHAR(200) contract.
 	_, err := db.ExecContext(ctx, `
 		CREATE SCHEMA IF NOT EXISTS training_environment;
 		CREATE TABLE IF NOT EXISTS training_environment.environment_type (
@@ -101,7 +101,7 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 			training_center_id VARCHAR(36) NOT NULL,
 			name VARCHAR(100) NOT NULL,
 			capacity INT NOT NULL,
-			location VARCHAR(150),
+			location VARCHAR(200),
 			is_active BOOLEAN NOT NULL DEFAULT TRUE,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -122,12 +122,20 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 		"c3d4e5f6-a7b8-9012-cdef-123456789012",
 		"d4e5f6a7-b8c9-0123-def1-234567890123",
 		"e5f6a7b8-c9d0-1234-ef12-345678901234",
+		"f6a7b8c9-d0e1-2345-f012-345678901235",
+		"a7b8c9d0-e1f2-3456-0123-456789012346",
+		"b8c9d0e1-f2a3-4567-1234-567890123457",
+		"c9d0e1f2-a3b4-5678-2345-678901234568",
 	}
 	cleanup := func() {
 		_, _ = db.ExecContext(ctx, `
 			DELETE FROM training_environment.environment
 			WHERE id IN ($1, $2, $3, $4, $5)
 		`, environmentIDs[0], environmentIDs[1], environmentIDs[2], environmentIDs[3], environmentIDs[4])
+		_, _ = db.ExecContext(ctx, `
+			DELETE FROM training_environment.environment
+			WHERE id IN ($1, $2, $3, $4)
+		`, environmentIDs[5], environmentIDs[6], environmentIDs[7], environmentIDs[8])
 		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment_type WHERE id = $1`, typeID)
 	}
 	cleanup()
@@ -211,27 +219,36 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 		t.Fatalf("expected ErrInvalidEnvironmentType, got: %v", fkErr)
 	}
 
-	// 6. Test location limit of 150 runes (matches the existing database schema)
-	loc150 := strings.Repeat("L", 150)
-	limitLocEntity := &model.Environment{
-		ID:                environmentIDs[2],
-		EnvironmentTypeID: typeID,
-		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
-		Name:              "Ambiente Ubicacion 150",
-		Capacity:          25,
-		Location:          &loc150,
-		IsActive:          true,
-		CreatedAt:         now,
-		UpdatedAt:         now,
-	}
-	if err := repo.Save(ctx, limitLocEntity); err != nil {
-		t.Fatalf("failed to save environment with 150 rune location: %v", err)
+	// 6. Test all OpenAPI boundary values and verify PostgreSQL returns the exact value.
+	for index, length := range []int{150, 151, 199, 200} {
+		location := strings.Repeat("L", length)
+		boundaryEntity := &model.Environment{
+			ID:                environmentIDs[index+2],
+			EnvironmentTypeID: typeID,
+			TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
+			Name:              "Ambiente Ubicacion Limite",
+			Capacity:          25,
+			Location:          &location,
+			IsActive:          true,
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+		if err := repo.Save(ctx, boundaryEntity); err != nil {
+			t.Fatalf("failed to save environment with %d rune location: %v", length, err)
+		}
+		foundBoundary, err := repo.FindByID(ctx, boundaryEntity.ID)
+		if err != nil {
+			t.Fatalf("failed to read environment with %d rune location: %v", length, err)
+		}
+		if foundBoundary == nil || foundBoundary.Location == nil || *foundBoundary.Location != location {
+			t.Fatalf("location was truncated or changed for %d runes: got=%v want=%d runes", length, foundBoundary.Location, length)
+		}
 	}
 
-	// 7. Test location exceeding 150 characters mapped to ErrLocationTooLong (22001)
-	locExceeded := strings.Repeat("X", 151)
+	// 7. Test location exceeding 200 characters mapped to ErrLocationTooLong (22001)
+	locExceeded := strings.Repeat("X", 201)
 	tooLongLocEntity := &model.Environment{
-		ID:                environmentIDs[3],
+		ID:                environmentIDs[6],
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente Ubicacion Excedida",
@@ -243,12 +260,12 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 	}
 	longErr := repo.Save(ctx, tooLongLocEntity)
 	if longErr != model.ErrLocationTooLong {
-		t.Fatalf("expected ErrLocationTooLong for > 150 characters, got: %v", longErr)
+		t.Fatalf("expected ErrLocationTooLong for > 200 characters, got: %v", longErr)
 	}
 
 	// 8. Test CHECK Constraint on capacity <= 0 mapped to ErrInvalidCapacity (23514)
 	invalidCapEntity := &model.Environment{
-		ID:                environmentIDs[4],
+		ID:                environmentIDs[7],
 		EnvironmentTypeID: typeID,
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
 		Name:              "Ambiente Capacidad Invalida",
@@ -297,7 +314,7 @@ func TestPostgresEnvironmentRepository_HU004_UpdateAndLogicalDeactivate(t *testi
 		t.Fatalf("failed to insert HU004 environment: %v", err)
 	}
 
-	location := "Piso 2"
+	location := strings.Repeat("U", 200)
 	entity := &model.Environment{
 		ID:                envID,
 		EnvironmentTypeID: typeID,
