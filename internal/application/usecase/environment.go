@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ErrEnvironmentNotFound     = errors.New("training environment not found")
-	ErrInvalidEnvironmentType  = errors.New("referenced environment_type_id does not exist")
-	ErrInvalidEnvironmentQuery = errors.New("invalid training environment query")
+	ErrEnvironmentNotFound      = errors.New("training environment not found")
+	ErrInvalidEnvironmentType   = errors.New("referenced environment_type_id does not exist")
+	ErrInvalidEnvironmentQuery  = errors.New("invalid training environment query")
+	ErrInvalidEnvironmentUpdate = errors.New("at least one editable field is required")
 )
 
 type environmentUseCase struct {
@@ -82,6 +83,76 @@ func (u *environmentUseCase) GetByID(ctx context.Context, id string) (*model.Env
 		return nil, ErrEnvironmentNotFound
 	}
 	return item, nil
+}
+
+// Update changes the editable fields of an environment and preserves its identity
+// and creation timestamp. PUT and PATCH share this partial-update behavior because
+// the published EnvironmentUpdate contract has optional fields.
+func (u *environmentUseCase) Update(ctx context.Context, id string, cmd port.UpdateEnvironmentCommand) (*model.Environment, error) {
+	item, err := u.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	changed := false
+	if cmd.EnvironmentTypeID != nil {
+		item.EnvironmentTypeID = strings.TrimSpace(*cmd.EnvironmentTypeID)
+		changed = true
+	}
+	if cmd.Name != nil {
+		item.Name = strings.TrimSpace(*cmd.Name)
+		changed = true
+	}
+	if cmd.Capacity != nil {
+		item.Capacity = *cmd.Capacity
+		changed = true
+	}
+	if cmd.LocationSet {
+		item.Location = cmd.Location
+		changed = true
+	}
+	if cmd.IsActive != nil {
+		item.IsActive = *cmd.IsActive
+		changed = true
+	}
+	if !changed {
+		return nil, ErrInvalidEnvironmentUpdate
+	}
+
+	if err := item.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+
+	if cmd.EnvironmentTypeID != nil && u.envTypeRepo != nil {
+		envType, err := u.envTypeRepo.FindByID(ctx, item.EnvironmentTypeID)
+		if err != nil {
+			return nil, err
+		}
+		if envType == nil {
+			return nil, ErrInvalidEnvironmentType
+		}
+	}
+
+	item.UpdatedAt = time.Now().UTC()
+	if err := u.envRepo.Update(ctx, item); err != nil {
+		if errors.Is(err, ErrInvalidEnvironmentType) {
+			return nil, ErrInvalidEnvironmentType
+		}
+		return nil, err
+	}
+	return item, nil
+}
+
+// Deactivate performs an idempotent logical deletion. The row remains in storage.
+func (u *environmentUseCase) Deactivate(ctx context.Context, id string) error {
+	item, err := u.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if !item.IsActive {
+		return nil
+	}
+	return u.envRepo.Deactivate(ctx, item.ID)
 }
 
 func (u *environmentUseCase) List(ctx context.Context) ([]model.Environment, error) {

@@ -33,6 +33,9 @@ func NewEnvironmentHandler(useCase port.EnvironmentUseCase) *EnvironmentHandler 
 // RegisterRoutes registers the training-environments endpoints to a ServeMux with auth middlewares.
 func (h *EnvironmentHandler) RegisterRoutes(mux *http.ServeMux, auth *middleware.AuthMiddleware) {
 	mux.HandleFunc("POST /training-environments", auth.RequireFeature("ENV_MANAGE", h.Create))
+	mux.HandleFunc("PUT /training-environments/{id}", auth.RequireFeature("ENV_MANAGE", h.Update))
+	mux.HandleFunc("PATCH /training-environments/{id}", auth.RequireFeature("ENV_MANAGE", h.Update))
+	mux.HandleFunc("DELETE /training-environments/{id}", auth.RequireFeature("ENV_MANAGE", h.Deactivate))
 	mux.HandleFunc("GET /training-environments/{id}", auth.RequireFeature("ENV_VIEW", h.GetByID))
 	mux.HandleFunc("GET /training-environments", auth.RequireFeature("ENV_VIEW", h.List))
 }
@@ -131,13 +134,7 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 // GetByID handles GET /training-environments/{id} (E4).
 func (h *EnvironmentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-		if len(parts) >= 2 {
-			id = parts[1]
-		}
-	}
+	id := environmentIDFromRequest(r)
 
 	if strings.TrimSpace(id) == "" {
 		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
@@ -157,6 +154,86 @@ func (h *EnvironmentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.WriteJSON(w, http.StatusOK, dto.FromEnvironmentModel(*item))
+}
+
+// Update handles PUT/PATCH /training-environments/{id}.
+func (h *EnvironmentHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := environmentIDFromRequest(r)
+	if strings.TrimSpace(id) == "" {
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
+		return
+	}
+
+	var req dto.UpdateEnvironmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "invalid JSON payload", []response.ErrorDetail{{Message: err.Error()}})
+		return
+	}
+
+	if req.EnvironmentTypeID == nil && req.Name == nil && req.Capacity == nil && !req.Location.Set && req.IsActive == nil {
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "at least one editable field is required", nil)
+		return
+	}
+
+	updated, err := h.useCase.Update(r.Context(), id, port.UpdateEnvironmentCommand{
+		EnvironmentTypeID: req.EnvironmentTypeID,
+		Name:              req.Name,
+		Capacity:          req.Capacity,
+		Location:          req.Location.Value,
+		LocationSet:       req.Location.Set,
+		IsActive:          req.IsActive,
+	})
+	if err != nil {
+		h.writeEnvironmentMutationError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, dto.FromEnvironmentModel(*updated))
+}
+
+// Deactivate handles DELETE /training-environments/{id} as an idempotent logical deletion.
+func (h *EnvironmentHandler) Deactivate(w http.ResponseWriter, r *http.Request) {
+	id := environmentIDFromRequest(r)
+	if strings.TrimSpace(id) == "" {
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
+		return
+	}
+
+	if err := h.useCase.Deactivate(r.Context(), id); err != nil {
+		if errors.Is(err, usecase.ErrEnvironmentNotFound) {
+			response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
+			return
+		}
+		response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "failed to deactivate training environment", nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *EnvironmentHandler) writeEnvironmentMutationError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, usecase.ErrEnvironmentNotFound) {
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
+		return
+	}
+	if errors.Is(err, usecase.ErrInvalidEnvironmentType) {
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "referenced environment_type_id does not exist", []response.ErrorDetail{{Field: "environment_type_id", Message: "environment type not found or invalid reference"}})
+		return
+	}
+	if errors.Is(err, usecase.ErrInvalidEnvironmentUpdate) || errors.Is(err, usecase.ErrValidation) || errors.Is(err, model.ErrInvalidEnvironmentTypeID) || errors.Is(err, model.ErrEmptyEnvironmentName) || errors.Is(err, model.ErrEnvironmentNameTooLong) || errors.Is(err, model.ErrInvalidCapacity) || errors.Is(err, model.ErrLocationTooLong) {
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
+		return
+	}
+	response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "failed to update training environment", nil)
+}
+
+func environmentIDFromRequest(r *http.Request) string {
+	id := r.PathValue("id")
+	if id == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 {
+			id = parts[1]
+		}
+	}
+	return id
 }
 
 // List handles GET /training-environments.

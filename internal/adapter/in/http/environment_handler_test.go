@@ -266,6 +266,82 @@ func TestEnvironmentHandler_E4_GetByID(t *testing.T) {
 	}
 }
 
+func TestEnvironmentHandler_HU004_UpdateReactivateAndLogicalDeactivate(t *testing.T) {
+	mux := setupEnvironmentTestServer()
+	token := createTestToken([]string{"ENV_MANAGE", "ENV_VIEW"}, testJWTSecret, false)
+	environmentID := "78901234-5678-9012-3456-789012345678"
+
+	request := func(method, path string, payload interface{}) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(payload)
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	updated := request(http.MethodPut, "/training-environments/"+environmentID, map[string]interface{}{
+		"environment_type_id": "347d47f9-1ba5-4b9c-89b7-892112a23d90",
+		"name":                "Aula 101 actualizada",
+		"capacity":            36,
+		"location":            "Piso 1, Bloque A",
+		"is_active":           false,
+	})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("expected 200 for environment update, got: %d (%s)", updated.Code, updated.Body.String())
+	}
+	var item dto.EnvironmentResponse
+	if err := json.Unmarshal(updated.Body.Bytes(), &item); err != nil {
+		t.Fatalf("failed to decode updated environment: %v", err)
+	}
+	if item.ID != environmentID || item.Name != "Aula 101 actualizada" || item.Capacity != 36 || item.IsActive {
+		t.Fatalf("unexpected updated environment: %+v", item)
+	}
+
+	reactivated := request(http.MethodPatch, "/training-environments/"+environmentID, map[string]interface{}{"is_active": true})
+	if reactivated.Code != http.StatusOK {
+		t.Fatalf("expected 200 for environment reactivation, got: %d (%s)", reactivated.Code, reactivated.Body.String())
+	}
+	if err := json.Unmarshal(reactivated.Body.Bytes(), &item); err != nil {
+		t.Fatalf("failed to decode reactivated environment: %v", err)
+	}
+	if !item.IsActive {
+		t.Fatalf("expected environment to be reactivated: %+v", item)
+	}
+
+	invalid := request(http.MethodPatch, "/training-environments/"+environmentID, map[string]interface{}{"capacity": 0})
+	if invalid.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for invalid update payload, got: %d (%s)", invalid.Code, invalid.Body.String())
+	}
+
+	missing := request(http.MethodPatch, "/training-environments/00000000-0000-0000-0000-000000000000", map[string]interface{}{"name": "No existe"})
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unknown environment, got: %d (%s)", missing.Code, missing.Body.String())
+	}
+
+	deactivated := request(http.MethodDelete, "/training-environments/"+environmentID, nil)
+	if deactivated.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for logical deactivation, got: %d (%s)", deactivated.Code, deactivated.Body.String())
+	}
+
+	repeated := request(http.MethodDelete, "/training-environments/"+environmentID, nil)
+	if repeated.Code != http.StatusNoContent {
+		t.Fatalf("expected idempotent 204 for repeated deactivation, got: %d (%s)", repeated.Code, repeated.Body.String())
+	}
+
+	stillPresent := request(http.MethodGet, "/training-environments/"+environmentID, nil)
+	if stillPresent.Code != http.StatusOK {
+		t.Fatalf("expected logically deleted environment to remain queryable, got: %d (%s)", stillPresent.Code, stillPresent.Body.String())
+	}
+	if err := json.Unmarshal(stillPresent.Body.Bytes(), &item); err != nil {
+		t.Fatalf("failed to decode logically deleted environment: %v", err)
+	}
+	if item.IsActive {
+		t.Fatalf("expected persisted environment to be inactive: %+v", item)
+	}
+}
+
 // Security / Auth: 401 UNAUTHENTICATED without token, 403 FORBIDDEN without feature
 func TestEnvironmentHandler_Security(t *testing.T) {
 	mux := setupEnvironmentTestServer()

@@ -34,6 +34,8 @@ type EnvironmentPage struct {
 // EnvironmentRepository defines the outbound port for environment persistence.
 type EnvironmentRepository interface {
 	Save(ctx context.Context, entity *model.Environment) error
+	Update(ctx context.Context, entity *model.Environment) error
+	Deactivate(ctx context.Context, id string) error
 	FindByID(ctx context.Context, id string) (*model.Environment, error)
 	FindAll(ctx context.Context) ([]model.Environment, error)
 	Query(ctx context.Context, query EnvironmentListQuery) (*EnvironmentPage, error)

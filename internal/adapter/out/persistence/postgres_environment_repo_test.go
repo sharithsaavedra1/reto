@@ -262,3 +262,77 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 		t.Fatalf("expected ErrInvalidCapacity for capacity <= 0, got: %v", capErr)
 	}
 }
+
+func TestPostgresEnvironmentRepository_HU004_UpdateAndLogicalDeactivate(t *testing.T) {
+	db := getTestPostgresDB(t)
+	if db == nil {
+		return
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	const (
+		typeID = "f4e3d2c1-b0a9-4876-9012-3456789abcde"
+		envID  = "f4e3d2c1-b0a9-4876-9012-3456789abc01"
+	)
+
+	cleanup := func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment WHERE id = $1`, envID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment_type WHERE id = $1`, typeID)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO training_environment.environment_type (id, code, name, description)
+		VALUES ($1, 'HU004-IT', 'HU004 Integration Type', 'HU004 update test')
+	`, typeID); err != nil {
+		t.Fatalf("failed to insert HU004 environment type: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO training_environment.environment
+		(id, environment_type_id, training_center_id, name, capacity, location, is_active, created_at, updated_at)
+		VALUES ($1, $2, 'c1d2e3f4-a5b6-7890-1234-56789abcdef0', 'HU004 Original', 20, 'Piso 1', TRUE, NOW(), NOW())
+	`, envID, typeID); err != nil {
+		t.Fatalf("failed to insert HU004 environment: %v", err)
+	}
+
+	location := "Piso 2"
+	entity := &model.Environment{
+		ID:                envID,
+		EnvironmentTypeID: typeID,
+		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
+		Name:              "HU004 Updated",
+		Capacity:          30,
+		Location:          &location,
+		IsActive:          true,
+		CreatedAt:         time.Now().UTC(),
+		UpdatedAt:         time.Now().UTC(),
+	}
+
+	repo := persistence.NewPostgresEnvironmentRepository(db)
+	if err := repo.Update(ctx, entity); err != nil {
+		t.Fatalf("failed to update HU004 environment: %v", err)
+	}
+	found, err := repo.FindByID(ctx, envID)
+	if err != nil {
+		t.Fatalf("failed to read updated HU004 environment: %v", err)
+	}
+	if found == nil || found.Name != "HU004 Updated" || found.Capacity != 30 || found.Location == nil || *found.Location != location || !found.IsActive {
+		t.Fatalf("unexpected updated HU004 environment: %+v", found)
+	}
+
+	if err := repo.Deactivate(ctx, envID); err != nil {
+		t.Fatalf("failed to logically deactivate HU004 environment: %v", err)
+	}
+	if err := repo.Deactivate(ctx, envID); err != nil {
+		t.Fatalf("repeated logical deactivation should be idempotent: %v", err)
+	}
+	found, err = repo.FindByID(ctx, envID)
+	if err != nil {
+		t.Fatalf("failed to read logically deactivated HU004 environment: %v", err)
+	}
+	if found == nil || found.IsActive {
+		t.Fatalf("expected inactive row to remain in PostgreSQL: %+v", found)
+	}
+}

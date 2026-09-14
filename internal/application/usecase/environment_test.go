@@ -72,3 +72,31 @@ func TestEnvironmentUseCase_GetByID(t *testing.T) {
 		t.Fatalf("expected ErrEnvironmentNotFound, got: %v", err)
 	}
 }
+
+func TestEnvironmentUseCase_UpdateAndDeactivate(t *testing.T) {
+	envRepo := persistence.NewMemoryEnvironmentRepository()
+	envTypeRepo := persistence.NewMemoryEnvironmentTypeRepository()
+	uc := usecase.NewEnvironmentUseCase(envRepo, envTypeRepo)
+
+	name := "Aula actualizada"
+	capacity := 42
+	active := false
+	updated, err := uc.Update(context.Background(), "78901234-5678-9012-3456-789012345678", port.UpdateEnvironmentCommand{
+		Name:     &name,
+		Capacity: &capacity,
+		IsActive: &active,
+	})
+	if err != nil {
+		t.Fatalf("expected successful update, got: %v", err)
+	}
+	if updated.Name != name || updated.Capacity != capacity || updated.IsActive {
+		t.Fatalf("unexpected updated environment: %+v", updated)
+	}
+
+	if err := uc.Deactivate(context.Background(), updated.ID); err != nil {
+		t.Fatalf("expected idempotent deactivation, got: %v", err)
+	}
+	if err := uc.Deactivate(context.Background(), "00000000-0000-0000-0000-000000000000"); err != usecase.ErrEnvironmentNotFound {
+		t.Fatalf("expected ErrEnvironmentNotFound for unknown environment, got: %v", err)
+	}
+}
