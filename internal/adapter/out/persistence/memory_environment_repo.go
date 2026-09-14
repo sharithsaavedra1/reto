@@ -114,6 +114,31 @@ func (r *MemoryEnvironmentRepository) Save(_ context.Context, entity *model.Envi
 	return nil
 }
 
+func (r *MemoryEnvironmentRepository) Update(_ context.Context, entity *model.Environment) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.items[entity.ID]; !exists {
+		return nil
+	}
+	r.items[entity.ID] = *entity
+	return nil
+}
+
+func (r *MemoryEnvironmentRepository) Deactivate(_ context.Context, id string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, exists := r.items[id]
+	if !exists {
+		return nil
+	}
+	item.IsActive = false
+	item.UpdatedAt = time.Now().UTC()
+	r.items[id] = item
+	return nil
+}
+
 func (r *MemoryEnvironmentRepository) FindByID(_ context.Context, id string) (*model.Environment, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

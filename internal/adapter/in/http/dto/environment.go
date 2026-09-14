@@ -1,11 +1,34 @@
 package dto
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/code-sena/design-software-training-environment-service/internal/application/port"
 	"github.com/code-sena/design-software-training-environment-service/internal/domain/model"
 )
+
+// NullableString distinguishes an omitted location from an explicit JSON null.
+type NullableString struct {
+	Set   bool
+	Value *string
+}
+
+func (s *NullableString) UnmarshalJSON(data []byte) error {
+	s.Set = true
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		s.Value = nil
+		return nil
+	}
+	var value string
+	if err := json.Unmarshal(data, &value); err != nil {
+		return fmt.Errorf("location must be a string or null: %w", err)
+	}
+	s.Value = &value
+	return nil
+}
 
 // CreateEnvironmentRequest represents the incoming payload for POST /training-environments.
 type CreateEnvironmentRequest struct {
@@ -14,6 +37,16 @@ type CreateEnvironmentRequest struct {
 	Name              string  `json:"name"`
 	Capacity          int     `json:"capacity"`
 	Location          *string `json:"location,omitempty"`
+}
+
+// UpdateEnvironmentRequest is shared by PUT and PATCH. All fields are optional
+// according to the published EnvironmentUpdate schema.
+type UpdateEnvironmentRequest struct {
+	EnvironmentTypeID *string        `json:"environment_type_id,omitempty"`
+	Name              *string        `json:"name,omitempty"`
+	Capacity          *int           `json:"capacity,omitempty"`
+	Location          NullableString `json:"location,omitempty"`
+	IsActive          *bool          `json:"is_active,omitempty"`
 }
 
 // EnvironmentResponse represents the serialized Environment in HTTP responses.

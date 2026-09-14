@@ -27,10 +27,10 @@ func TestIsValidUUID(t *testing.T) {
 		"not-a-uuid",
 		"xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", // 36 letters x (non-hex)
 		strings.Repeat("x", 36),
-		"347d47f9-1ba5-4b9c-89b7-892112a23d9",  // 35 chars
+		"347d47f9-1ba5-4b9c-89b7-892112a23d9",   // 35 chars
 		"347d47f9-1ba5-4b9c-89b7-892112a23d900", // 37 chars
-		"347d47f9_1ba5_4b9c_89b7_892112a23d90", // underscores instead of hyphens
-		"347d47f9-1ba5-4b9c-89b7-892112a23d9g", // 'g' is non-hex
+		"347d47f9_1ba5_4b9c_89b7_892112a23d90",  // underscores instead of hyphens
+		"347d47f9-1ba5-4b9c-89b7-892112a23d9g",  // 'g' is non-hex
 	}
 	for _, u := range invalidUUIDs {
 		if model.IsValidUUID(u) {
@@ -91,12 +91,14 @@ func TestEnvironment_Validate(t *testing.T) {
 		t.Fatalf("expected ErrEnvironmentNameTooLong, got: %v", err)
 	}
 
-	// Location <= 200 runes valid, > 200 runes fails
-	valid200Loc := valid
-	loc200 := strings.Repeat("L", 200)
-	valid200Loc.Location = &loc200
-	if err := valid200Loc.Validate(); err != nil {
-		t.Fatalf("expected valid 200 rune location, got: %v", err)
+	// OpenAPI contract: locations from 150 through 200 runes are valid.
+	for _, length := range []int{150, 151, 199, 200} {
+		validLocation := valid
+		location := strings.Repeat("L", length)
+		validLocation.Location = &location
+		if err := validLocation.Validate(); err != nil {
+			t.Fatalf("expected valid %d rune location, got: %v", length, err)
+		}
 	}
 
 	tooLongLoc := strings.Repeat("L", 201)

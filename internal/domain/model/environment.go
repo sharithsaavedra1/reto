@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 )
 
+const MaxLocationLength = 200
+
 var (
 	ErrInvalidEnvironmentTypeID = errors.New("environment_type_id must be a valid RFC 4122 UUID")
 	ErrInvalidTrainingCenterID  = errors.New("training_center_id must be a valid RFC 4122 UUID")
@@ -76,7 +78,7 @@ func (e *Environment) Validate() error {
 		return ErrInvalidCapacity
 	}
 
-	if e.Location != nil && utf8.RuneCountInString(*e.Location) > 200 {
+	if e.Location != nil && utf8.RuneCountInString(*e.Location) > MaxLocationLength {
 		return ErrLocationTooLong
 	}
 

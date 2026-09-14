@@ -58,6 +58,51 @@ func (r *PostgresEnvironmentRepository) Save(ctx context.Context, entity *model.
 	return nil
 }
 
+func (r *PostgresEnvironmentRepository) Update(ctx context.Context, entity *model.Environment) error {
+	query := `
+		UPDATE training_environment.environment
+		SET environment_type_id = $1,
+			name = $2,
+			capacity = $3,
+			location = $4,
+			is_active = $5,
+			updated_at = $6
+		WHERE id = $7
+	`
+	_, err := r.db.ExecContext(ctx, query,
+		entity.EnvironmentTypeID,
+		entity.Name,
+		entity.Capacity,
+		entity.Location,
+		entity.IsActive,
+		entity.UpdatedAt,
+		entity.ID,
+	)
+	if err != nil {
+		errMsg := strings.ToLower(err.Error())
+		if strings.Contains(errMsg, "fk_environment_environment_type") || strings.Contains(errMsg, "23503") {
+			return usecase.ErrInvalidEnvironmentType
+		}
+		if strings.Contains(errMsg, "chk_environment_capacity") || strings.Contains(errMsg, "23514") {
+			return model.ErrInvalidCapacity
+		}
+		if strings.Contains(errMsg, "value too long") || strings.Contains(errMsg, "22001") || strings.Contains(errMsg, "string_data_right_truncation") {
+			return model.ErrLocationTooLong
+		}
+		return err
+	}
+	return nil
+}
+
+func (r *PostgresEnvironmentRepository) Deactivate(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE training_environment.environment
+		SET is_active = FALSE, updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	return err
+}
+
 func (r *PostgresEnvironmentRepository) FindByID(ctx context.Context, id string) (*model.Environment, error) {
 	query := `
 		SELECT id, environment_type_id, training_center_id, name, capacity, location, is_active, created_at, updated_at
