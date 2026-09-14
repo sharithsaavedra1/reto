@@ -65,7 +65,7 @@ func TestEnvironmentHandler_E1_CreateEnvironmentValid(t *testing.T) {
 	}
 }
 
-// E2: Validation of payload - capacity <= 0, name empty or > 100 runes, location > 200 runes -> 422
+// E2: Validation of payload - capacity <= 0, name empty or > 100 runes, location > 150 runes -> 422
 func TestEnvironmentHandler_E2_PayloadValidation(t *testing.T) {
 	mux := setupEnvironmentTestServer()
 	token := createTestToken([]string{"ENV_MANAGE"}, testJWTSecret, false)
@@ -121,8 +121,8 @@ func TestEnvironmentHandler_E2_PayloadValidation(t *testing.T) {
 		t.Fatalf("expected 422 for name > 100 runes, got: %d (%s)", recLongName.Code, recLongName.Body.String())
 	}
 
-	// 4. Location > 200 runes -> 422
-	tooLongLoc := strings.Repeat("L", 201)
+	// 4. Location > 150 runes -> 422
+	tooLongLoc := strings.Repeat("L", 151)
 	longLocBody, _ := json.Marshal(dto.CreateEnvironmentRequest{
 		EnvironmentTypeID: "347d47f9-1ba5-4b9c-89b7-892112a23d90",
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
@@ -137,17 +137,17 @@ func TestEnvironmentHandler_E2_PayloadValidation(t *testing.T) {
 	mux.ServeHTTP(recLongLoc, reqLongLoc)
 
 	if recLongLoc.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for location > 200 runes, got: %d (%s)", recLongLoc.Code, recLongLoc.Body.String())
+		t.Fatalf("expected 422 for location > 150 runes, got: %d (%s)", recLongLoc.Code, recLongLoc.Body.String())
 	}
 
-	// 4b. Location == 200 runes (boundary limit per official API contract) -> 201 Created
-	valid200Loc := strings.Repeat("L", 200)
+	// 4b. Location == 150 runes (boundary limit of the existing database schema) -> 201 Created
+	valid150Loc := strings.Repeat("L", 150)
 	boundaryLocBody, _ := json.Marshal(dto.CreateEnvironmentRequest{
 		EnvironmentTypeID: "347d47f9-1ba5-4b9c-89b7-892112a23d90",
 		TrainingCenterID:  "c1d2e3f4-a5b6-7890-1234-56789abcdef0",
-		Name:              "Ambiente con ubicación límite 200",
+		Name:              "Ambiente con ubicación límite 150",
 		Capacity:          20,
-		Location:          &valid200Loc,
+		Location:          &valid150Loc,
 	})
 	reqBoundaryLoc := httptest.NewRequest(http.MethodPost, "/training-environments", bytes.NewReader(boundaryLocBody))
 	reqBoundaryLoc.Header.Set("Authorization", "Bearer "+token)
@@ -156,7 +156,7 @@ func TestEnvironmentHandler_E2_PayloadValidation(t *testing.T) {
 	mux.ServeHTTP(recBoundaryLoc, reqBoundaryLoc)
 
 	if recBoundaryLoc.Code != http.StatusCreated {
-		t.Fatalf("expected 201 Created for location == 200 runes, got: %d (%s)", recBoundaryLoc.Code, recBoundaryLoc.Body.String())
+		t.Fatalf("expected 201 Created for location == 150 runes, got: %d (%s)", recBoundaryLoc.Code, recBoundaryLoc.Body.String())
 	}
 
 	// 5. Valid 100 UTF-8 rune name with accents (201 Created)
@@ -315,9 +315,24 @@ func TestEnvironmentHandler_HU004_UpdateReactivateAndLogicalDeactivate(t *testin
 		t.Fatalf("expected 422 for invalid update payload, got: %d (%s)", invalid.Code, invalid.Body.String())
 	}
 
+	location150 := request(http.MethodPatch, "/training-environments/"+environmentID, map[string]interface{}{"location": strings.Repeat("L", 150)})
+	if location150.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a 150-character location, got: %d (%s)", location150.Code, location150.Body.String())
+	}
+
 	missing := request(http.MethodPatch, "/training-environments/00000000-0000-0000-0000-000000000000", map[string]interface{}{"name": "No existe"})
 	if missing.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for unknown environment, got: %d (%s)", missing.Code, missing.Body.String())
+	}
+
+	invalidID := request(http.MethodPatch, "/training-environments/not-a-uuid", map[string]interface{}{"name": "ID inválido"})
+	if invalidID.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for malformed environment id, got: %d (%s)", invalidID.Code, invalidID.Body.String())
+	}
+
+	invalidDeleteID := request(http.MethodDelete, "/training-environments/not-a-uuid", nil)
+	if invalidDeleteID.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for malformed delete id, got: %d (%s)", invalidDeleteID.Code, invalidDeleteID.Body.String())
 	}
 
 	deactivated := request(http.MethodDelete, "/training-environments/"+environmentID, nil)
@@ -364,6 +379,39 @@ func TestEnvironmentHandler_Security(t *testing.T) {
 
 	if recWrongPerm.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 Forbidden, got: %d (%s)", recWrongPerm.Code, recWrongPerm.Body.String())
+	}
+}
+
+func TestEnvironmentHandler_HU004_Security(t *testing.T) {
+	methods := []string{http.MethodPut, http.MethodPatch, http.MethodDelete}
+	path := "/training-environments/78901234-5678-9012-3456-789012345678"
+
+	for _, method := range methods {
+		t.Run(method+"_without_authentication", func(t *testing.T) {
+			mux := setupEnvironmentTestServer()
+			body := bytes.NewReader([]byte("{\"name\":\"Aula protegida\"}"))
+			req := httptest.NewRequest(method, path, body)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusUnauthorized {
+				t.Fatalf("expected 401 for %s without authentication, got: %d (%s)", method, rec.Code, rec.Body.String())
+			}
+		})
+
+		t.Run(method+"_without_manage_feature", func(t *testing.T) {
+			mux := setupEnvironmentTestServer()
+			viewToken := createTestToken([]string{"ENV_VIEW"}, testJWTSecret, false)
+			body := bytes.NewReader([]byte("{\"name\":\"Aula protegida\"}"))
+			req := httptest.NewRequest(method, path, body)
+			req.Header.Set("Authorization", "Bearer "+viewToken)
+			rec := httptest.NewRecorder()
+			mux.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 for %s without ENV_MANAGE, got: %d (%s)", method, rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

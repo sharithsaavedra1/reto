@@ -90,10 +90,10 @@ func (h *EnvironmentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	if req.Location != nil && utf8.RuneCountInString(*req.Location) > 200 {
+	if req.Location != nil && utf8.RuneCountInString(*req.Location) > 150 {
 		validationDetails = append(validationDetails, response.ErrorDetail{
 			Field:   "location",
-			Message: "location length must not exceed 200 characters",
+			Message: "location length must not exceed 150 characters",
 		})
 	}
 
@@ -163,6 +163,10 @@ func (h *EnvironmentHandler) Update(w http.ResponseWriter, r *http.Request) {
 		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
 		return
 	}
+	if !model.IsValidUUID(id) {
+		writeInvalidEnvironmentID(w, r)
+		return
+	}
 
 	var req dto.UpdateEnvironmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -197,6 +201,10 @@ func (h *EnvironmentHandler) Deactivate(w http.ResponseWriter, r *http.Request) 
 		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "training environment not found", nil)
 		return
 	}
+	if !model.IsValidUUID(id) {
+		writeInvalidEnvironmentID(w, r)
+		return
+	}
 
 	if err := h.useCase.Deactivate(r.Context(), id); err != nil {
 		if errors.Is(err, usecase.ErrEnvironmentNotFound) {
@@ -207,6 +215,12 @@ func (h *EnvironmentHandler) Deactivate(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeInvalidEnvironmentID(w http.ResponseWriter, r *http.Request) {
+	response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", "invalid training environment id", []response.ErrorDetail{
+		{Field: "id", Message: "id must be a valid RFC 4122 UUID"},
+	})
 }
 
 func (h *EnvironmentHandler) writeEnvironmentMutationError(w http.ResponseWriter, r *http.Request, err error) {
