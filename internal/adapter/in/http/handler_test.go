@@ -23,10 +23,18 @@ import (
 const testJWTSecret = "test-secret-key-123456"
 
 func createTestToken(features []string, secret string, expired bool) string {
-	return createCustomTestToken(features, nil, 0, secret, expired)
+	return createTestTokenWithSubject(features, "user-123", secret, expired)
+}
+
+func createTestTokenWithSubject(features []string, subject, secret string, expired bool) string {
+	return createCustomTestTokenWithSubject(features, nil, 0, subject, secret, expired)
 }
 
 func createCustomTestToken(features []string, roles []string, nbf int64, secret string, expired bool) string {
+	return createCustomTestTokenWithSubject(features, roles, nbf, "user-123", secret, expired)
+}
+
+func createCustomTestTokenWithSubject(features []string, roles []string, nbf int64, subject, secret string, expired bool) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 
 	exp := time.Now().Add(1 * time.Hour).Unix()
@@ -35,7 +43,7 @@ func createCustomTestToken(features []string, roles []string, nbf int64, secret 
 	}
 
 	payloadMap := map[string]interface{}{
-		"sub": "user-123",
+		"sub": subject,
 		"exp": exp,
 		"iat": time.Now().Unix(),
 	}

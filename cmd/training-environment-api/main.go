@@ -21,6 +21,7 @@ func main() {
 	var envTypeRepo port.EnvironmentTypeRepository
 	var envRepo port.EnvironmentRepository
 	var availabilityRuleRepo port.AvailabilityRuleRepository
+	var maintenanceRepo port.MaintenanceRepository
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL != "" {
@@ -32,11 +33,13 @@ func main() {
 		envTypeRepo = persistence.NewPostgresEnvironmentTypeRepository(db)
 		envRepo = persistence.NewPostgresEnvironmentRepository(db)
 		availabilityRuleRepo = persistence.NewPostgresAvailabilityRuleRepository(db)
+		maintenanceRepo = persistence.NewPostgresMaintenanceRepository(db)
 		log.Println("connected to PostgreSQL repositories")
 	} else {
 		envTypeRepo = persistence.NewMemoryEnvironmentTypeRepository()
 		envRepo = persistence.NewMemoryEnvironmentRepository()
 		availabilityRuleRepo = persistence.NewMemoryAvailabilityRuleRepository(envRepo)
+		maintenanceRepo = persistence.NewMemoryMaintenanceRepository(envRepo)
 		log.Println("using in-memory repositories with default seed data")
 	}
 
@@ -81,6 +84,11 @@ func main() {
 	availabilityRuleUseCase := usecase.NewAvailabilityRuleUseCase(availabilityRuleRepo)
 	availabilityRuleHandler := httpAdapter.NewAvailabilityRuleHandler(availabilityRuleUseCase)
 	availabilityRuleHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register HU-ENV-006 routes (/training-environments/{id}/maintenance)
+	maintenanceUseCase := usecase.NewMaintenanceUseCase(maintenanceRepo)
+	maintenanceHandler := httpAdapter.NewMaintenanceHandler(maintenanceUseCase)
+	maintenanceHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
 	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
