@@ -20,6 +20,7 @@ func main() {
 	// 1. Storage repositories setup (PostgreSQL or In-Memory fallback)
 	var envTypeRepo port.EnvironmentTypeRepository
 	var envRepo port.EnvironmentRepository
+	var availabilityRuleRepo port.AvailabilityRuleRepository
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL != "" {
@@ -30,10 +31,12 @@ func main() {
 		defer db.Close()
 		envTypeRepo = persistence.NewPostgresEnvironmentTypeRepository(db)
 		envRepo = persistence.NewPostgresEnvironmentRepository(db)
+		availabilityRuleRepo = persistence.NewPostgresAvailabilityRuleRepository(db)
 		log.Println("connected to PostgreSQL repositories")
 	} else {
 		envTypeRepo = persistence.NewMemoryEnvironmentTypeRepository()
 		envRepo = persistence.NewMemoryEnvironmentRepository()
+		availabilityRuleRepo = persistence.NewMemoryAvailabilityRuleRepository(envRepo)
 		log.Println("using in-memory repositories with default seed data")
 	}
 
@@ -73,6 +76,11 @@ func main() {
 	// Register HU-ENV-002 routes (/training-environments)
 	envHandler := httpAdapter.NewEnvironmentHandler(envUseCase)
 	envHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register HU-ENV-005 routes (/training-environments/{id}/availability-rules)
+	availabilityRuleUseCase := usecase.NewAvailabilityRuleUseCase(availabilityRuleRepo)
+	availabilityRuleHandler := httpAdapter.NewAvailabilityRuleHandler(availabilityRuleUseCase)
+	availabilityRuleHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
 	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
