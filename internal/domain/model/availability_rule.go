@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const MaxAvailabilityRules = 24
+
 var (
 	ErrInvalidAvailabilityDay       = errors.New("day_of_week must be between 1 and 7")
 	ErrInvalidAvailabilityTimeRange = errors.New("end_time must be after start_time")

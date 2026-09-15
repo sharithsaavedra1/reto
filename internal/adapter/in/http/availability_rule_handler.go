@@ -139,6 +139,8 @@ func (h *AvailabilityRuleHandler) writeError(w http.ResponseWriter, r *http.Requ
 	switch {
 	case errors.Is(err, usecase.ErrEnvironmentNotFound), errors.Is(err, usecase.ErrAvailabilityRuleNotFound):
 		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "availability rule or training environment not found", nil)
+	case errors.Is(err, usecase.ErrAvailabilityRuleLimit):
+		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
 	case errors.Is(err, usecase.ErrAvailabilityValidation), errors.Is(err, model.ErrInvalidAvailabilityDay), errors.Is(err, model.ErrInvalidAvailabilityTimeRange), errors.Is(err, model.ErrInvalidAvailabilityDateRange):
 		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
 	default:

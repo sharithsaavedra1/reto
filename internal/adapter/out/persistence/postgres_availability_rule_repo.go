@@ -97,6 +97,20 @@ func (r *PostgresAvailabilityRuleRepository) Get(ctx context.Context, environmen
 	return rule, nil
 }
 
+func (r *PostgresAvailabilityRuleRepository) Count(ctx context.Context, environmentID string) (int, error) {
+	if err := r.ensureEnvironment(ctx, r.db, environmentID); err != nil {
+		return 0, err
+	}
+	var count int
+	if err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM training_environment.availability_rule
+		WHERE environment_id = $1`, environmentID).Scan(&count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 func (r *PostgresAvailabilityRuleRepository) Create(ctx context.Context, rule *model.AvailabilityRule) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -104,8 +118,18 @@ func (r *PostgresAvailabilityRuleRepository) Create(ctx context.Context, rule *m
 	}
 	defer tx.Rollback()
 
-	if err := r.ensureEnvironment(ctx, tx, rule.EnvironmentID); err != nil {
+	if err := r.lockEnvironment(ctx, tx, rule.EnvironmentID); err != nil {
 		return err
+	}
+	var count int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM training_environment.availability_rule
+		WHERE environment_id = $1`, rule.EnvironmentID).Scan(&count); err != nil {
+		return err
+	}
+	if count >= model.MaxAvailabilityRules {
+		return usecase.ErrAvailabilityRuleLimit
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO training_environment.availability_rule
@@ -231,6 +255,21 @@ func (r *PostgresAvailabilityRuleRepository) ensureEnvironment(ctx context.Conte
 	}
 	if !exists {
 		return usecase.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (r *PostgresAvailabilityRuleRepository) lockEnvironment(ctx context.Context, tx *sql.Tx, environmentID string) error {
+	var id string
+	if err := tx.QueryRowContext(ctx, `
+		SELECT id
+		FROM training_environment.environment
+		WHERE id = $1
+		FOR UPDATE`, environmentID).Scan(&id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return usecase.ErrEnvironmentNotFound
+		}
+		return err
 	}
 	return nil
 }

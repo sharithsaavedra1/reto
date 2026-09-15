@@ -13,6 +13,7 @@ import (
 var (
 	ErrAvailabilityRuleNotFound = errors.New("availability rule not found")
 	ErrAvailabilityValidation   = errors.New("invalid availability rule")
+	ErrAvailabilityRuleLimit    = errors.New("an environment cannot have more than 24 availability rules")
 )
 
 type availabilityRuleUseCase struct {
@@ -50,6 +51,13 @@ func (u *availabilityRuleUseCase) Create(ctx context.Context, cmd port.Availabil
 	}
 	if err := rule.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrAvailabilityValidation, err)
+	}
+	count, err := u.repo.Count(ctx, rule.EnvironmentID)
+	if err != nil {
+		return nil, err
+	}
+	if count >= model.MaxAvailabilityRules {
+		return nil, ErrAvailabilityRuleLimit
 	}
 	if err := u.repo.Create(ctx, rule); err != nil {
 		return nil, err

@@ -56,12 +56,36 @@ func (r *MemoryAvailabilityRuleRepository) Get(ctx context.Context, environmentI
 	return &rule, nil
 }
 
+func (r *MemoryAvailabilityRuleRepository) Count(ctx context.Context, environmentID string) (int, error) {
+	if err := r.ensureEnvironment(ctx, environmentID); err != nil {
+		return 0, err
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	count := 0
+	for _, rule := range r.rules {
+		if rule.EnvironmentID == environmentID {
+			count++
+		}
+	}
+	return count, nil
+}
+
 func (r *MemoryAvailabilityRuleRepository) Create(ctx context.Context, rule *model.AvailabilityRule) error {
 	if err := r.ensureEnvironment(ctx, rule.EnvironmentID); err != nil {
 		return err
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	count := 0
+	for _, current := range r.rules {
+		if current.EnvironmentID == rule.EnvironmentID {
+			count++
+		}
+	}
+	if count >= model.MaxAvailabilityRules {
+		return usecase.ErrAvailabilityRuleLimit
+	}
 	r.rules[rule.ID] = *rule
 	r.outbox = append(r.outbox, MemoryOutboxEvent{EventType: "environment.availability.changed", Payload: map[string]interface{}{
 		"environment_id": rule.EnvironmentID, "change_type": "RULE_ADDED", "rule_id": rule.ID,

@@ -10,6 +10,7 @@ import (
 	httpAdapter "github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/dto"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/middleware"
+	"github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/response"
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/out/persistence"
 	"github.com/code-sena/design-software-training-environment-service/internal/application/usecase"
 )
@@ -154,6 +155,45 @@ func TestAvailabilityRuleHandler_HU005_ValidationAndNoEventOn4xx(t *testing.T) {
 	mux.ServeHTTP(nonexistentRec, nonexistent)
 	if nonexistentRec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404 for nonexistent environment, got %d (%s)", nonexistentRec.Code, nonexistentRec.Body.String())
+	}
+}
+
+func TestAvailabilityRuleHandler_HU005_Maximum24Rules(t *testing.T) {
+	mux, ruleRepo := setupAvailabilityRuleTestServer()
+	token := createTestToken([]string{"ENV_AVAILABILITY_QUERY", "ENV_VIEW"}, testJWTSecret, false)
+	environmentID := "78901234-5678-9012-3456-789012345678"
+	createRule := func(day int) *httptest.ResponseRecorder {
+		body, _ := json.Marshal(dto.AvailabilityRuleRequest{
+			DayOfWeek: day, StartTime: "08:00:00", EndTime: "12:00:00", EffectiveFrom: "2026-01-01",
+		})
+		req := httptest.NewRequest(http.MethodPost, "/training-environments/"+environmentID+"/availability-rules", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	for index := 0; index < 24; index++ {
+		rec := createRule((index % 7) + 1)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("rule %d: expected 201 within the limit, got %d (%s)", index+1, rec.Code, rec.Body.String())
+		}
+	}
+
+	twentyFifth := createRule(1)
+	if twentyFifth.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected rule 25 to return 422, got %d (%s)", twentyFifth.Code, twentyFifth.Body.String())
+	}
+	var errorResponse response.ErrorEnvelope
+	if err := json.Unmarshal(twentyFifth.Body.Bytes(), &errorResponse); err != nil {
+		t.Fatalf("failed to decode rule limit error: %v", err)
+	}
+	if errorResponse.Error.Code != "UNPROCESSABLE_ENTITY" {
+		t.Fatalf("expected UNPROCESSABLE_ENTITY for rule 25, got %q", errorResponse.Error.Code)
+	}
+	if events := ruleRepo.OutboxEvents(); len(events) != 24 {
+		t.Fatalf("rule 25 must not create an Outbox event, got %d events", len(events))
 	}
 }
 

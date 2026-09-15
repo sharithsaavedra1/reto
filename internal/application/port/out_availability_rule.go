@@ -9,6 +9,7 @@ import (
 type AvailabilityRuleRepository interface {
 	List(ctx context.Context, environmentID string, dayOfWeek *int) ([]model.AvailabilityRule, error)
 	Get(ctx context.Context, environmentID, ruleID string) (*model.AvailabilityRule, error)
+	Count(ctx context.Context, environmentID string) (int, error)
 	Create(ctx context.Context, rule *model.AvailabilityRule) error
 	Update(ctx context.Context, rule *model.AvailabilityRule) error
 	Delete(ctx context.Context, environmentID, ruleID string) error
