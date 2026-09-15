@@ -44,14 +44,16 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			start_time TIME NOT NULL,
 			end_time TIME NOT NULL,
 			effective_from DATE NOT NULL,
-			effective_until DATE
+			effective_until DATE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
 		CREATE TABLE IF NOT EXISTS training_environment.maintenance (
 			id VARCHAR(36) PRIMARY KEY,
 			environment_id VARCHAR(36) NOT NULL,
 			start_date DATE NOT NULL,
 			end_date DATE NOT NULL,
-			reason TEXT
+			reason TEXT,
+			created_by VARCHAR(36)
 		);
 		CREATE TABLE IF NOT EXISTS training_environment.reservation (
 			id VARCHAR(36) PRIMARY KEY,
@@ -59,7 +61,8 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			reservation_date DATE NOT NULL,
 			start_time TIME NOT NULL,
 			end_time TIME NOT NULL,
-			status VARCHAR(20) NOT NULL
+			status VARCHAR(20) NOT NULL,
+			requester_id VARCHAR(36)
 		);
 		CREATE INDEX IF NOT EXISTS idx_availability_rule_environment_day
 			ON training_environment.availability_rule (environment_id, day_of_week);
