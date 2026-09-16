@@ -63,65 +63,89 @@ type JWKS struct {
 
 // JWTClaims represents standard claims payload in the token.
 type JWTClaims struct {
-	Subject     string      `json:"sub,omitempty"`
-	Email       string      `json:"email,omitempty"`
-	Features    interface{} `json:"features,omitempty"`
-	Permissions interface{} `json:"permissions,omitempty"`
-	Scope       interface{} `json:"scope,omitempty"`
-	Exp         int64       `json:"exp,omitempty"`
-	Nbf         int64       `json:"nbf,omitempty"`
-	Iat         int64       `json:"iat,omitempty"`
+	Subject          string      `json:"sub,omitempty"`
+	Email            string      `json:"email,omitempty"`
+	TrainingCenterID string      `json:"training_center_id,omitempty"`
+	Features         interface{} `json:"features,omitempty"`
+	Permissions      interface{} `json:"permissions,omitempty"`
+	Scope            interface{} `json:"scope,omitempty"`
+	Exp              int64       `json:"exp,omitempty"`
+	Nbf              int64       `json:"nbf,omitempty"`
+	Iat              int64       `json:"iat,omitempty"`
 }
 
-// HasFeature returns true ONLY if the claims explicitly contain the required feature.
-// Note: Role-based bypasses (like ADMIN or *) are strictly forbidden per security criteria.
+// HasFeature returns true only when the claims explicitly contain the required feature.
+// IAM emits entries as FEATURE_CODE:SCOPE_TYPE; legacy unscoped feature codes remain
+// accepted for local development and backwards-compatible tests.
 func (c *JWTClaims) HasFeature(requiredFeature string) bool {
+	return c.FeatureScope(requiredFeature) != "__MISSING__"
+}
+
+// FeatureScope returns the scope associated with a feature. Legacy unscoped
+// entries are treated as GLOBAL. "__MISSING__" means the feature is absent.
+func (c *JWTClaims) FeatureScope(requiredFeature string) string {
+	requiredFeature = strings.TrimSpace(requiredFeature)
 	if requiredFeature == "" {
-		return true
+		return "GLOBAL"
 	}
 
-	checkValue := func(val interface{}) bool {
-		switch v := val.(type) {
-		case string:
-			for _, part := range strings.Split(v, " ") {
-				if strings.TrimSpace(part) == requiredFeature {
-					return true
-				}
+	best := "__MISSING__"
+	inspect := func(value interface{}) {
+		for _, entry := range claimStrings(value) {
+			feature, scope := splitFeatureScope(entry)
+			if feature != requiredFeature {
+				continue
 			}
-			for _, part := range strings.Split(v, ",") {
-				if strings.TrimSpace(part) == requiredFeature {
-					return true
-				}
+			if scope == "" {
+				scope = "GLOBAL"
 			}
-		case []interface{}:
-			for _, item := range v {
-				if s, ok := item.(string); ok {
-					if strings.TrimSpace(s) == requiredFeature {
-						return true
-					}
-				}
+			if scope == "GLOBAL" || best == "__MISSING__" {
+				best = scope
 			}
-		case []string:
-			for _, s := range v {
-				if strings.TrimSpace(s) == requiredFeature {
-					return true
+		}
+	}
+	inspect(c.Features)
+	inspect(c.Permissions)
+	inspect(c.Scope)
+	return best
+}
+
+func claimStrings(value interface{}) []string {
+	result := make([]string, 0)
+	switch v := value.(type) {
+	case string:
+		for _, commaPart := range strings.Split(v, ",") {
+			for _, part := range strings.Fields(commaPart) {
+				if part = strings.TrimSpace(part); part != "" {
+					result = append(result, part)
 				}
 			}
 		}
-		return false
+	case []interface{}:
+		for _, item := range v {
+			if text, ok := item.(string); ok {
+				if text = strings.TrimSpace(text); text != "" {
+					result = append(result, text)
+				}
+			}
+		}
+	case []string:
+		for _, text := range v {
+			if text = strings.TrimSpace(text); text != "" {
+				result = append(result, text)
+			}
+		}
 	}
+	return result
+}
 
-	if checkValue(c.Features) {
-		return true
+func splitFeatureScope(entry string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(entry), ":", 2)
+	feature := strings.TrimSpace(parts[0])
+	if len(parts) == 1 {
+		return feature, ""
 	}
-	if checkValue(c.Permissions) {
-		return true
-	}
-	if checkValue(c.Scope) {
-		return true
-	}
-
-	return false
+	return feature, strings.TrimSpace(parts[1])
 }
 
 // AuthMiddleware validates JWT authentication and authorization supporting RS256 (via IAM JWKS / RSA Public Key)
@@ -302,12 +326,7 @@ func (a *AuthMiddleware) RequireFeature(requiredFeature string, next http.Handle
 		}
 
 		if !claims.HasFeature(requiredFeature) {
-			details := []response.ErrorDetail{
-				{
-					Field:   "feature",
-					Message: "required feature missing: " + requiredFeature,
-				},
-			}
+			details := []map[string]string{{"field": "feature", "issue": "MISSING_REQUIRED_FEATURE"}}
 			response.WriteError(w, r, http.StatusForbidden, "FORBIDDEN", "access denied: insufficient permissions", details)
 			return
 		}

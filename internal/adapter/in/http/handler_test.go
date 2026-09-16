@@ -30,6 +30,28 @@ func createTestTokenWithSubject(features []string, subject, secret string, expir
 	return createCustomTestTokenWithSubject(features, nil, 0, subject, secret, expired)
 }
 
+func createScopedTestTokenWithSubject(features []string, subject, trainingCenterID, secret string, expired bool) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	exp := time.Now().Add(1 * time.Hour).Unix()
+	if expired {
+		exp = time.Now().Add(-1 * time.Hour).Unix()
+	}
+	payloadMap := map[string]interface{}{
+		"sub":                subject,
+		"features":           features,
+		"training_center_id": trainingCenterID,
+		"exp":                exp,
+		"iat":                time.Now().Unix(),
+	}
+	payloadBytes, _ := json.Marshal(payloadMap)
+	payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+	signingInput := header + "." + payload
+	h := hmac.New(sha256.New, []byte(secret))
+	h.Write([]byte(signingInput))
+	sig := base64.RawURLEncoding.EncodeToString(h.Sum(nil))
+	return signingInput + "." + sig
+}
+
 func createCustomTestToken(features []string, roles []string, nbf int64, secret string, expired bool) string {
 	return createCustomTestTokenWithSubject(features, roles, nbf, "user-123", secret, expired)
 }

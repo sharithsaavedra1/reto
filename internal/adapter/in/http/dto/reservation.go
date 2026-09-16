@@ -28,6 +28,11 @@ type ReservationResponse struct {
 	UpdatedAt       string  `json:"updated_at"`
 }
 
+type ReservationListResponse struct {
+	Data       []ReservationResponse `json:"data"`
+	Pagination PaginationResponse    `json:"pagination"`
+}
+
 func (r CreateReservationRequest) Command(requesterID string) (port.CreateReservationCommand, error) {
 	reservationDate, err := time.Parse(time.DateOnly, r.ReservationDate)
 	if err != nil {
@@ -63,5 +68,18 @@ func FromReservationModel(r model.Reservation) ReservationResponse {
 		Status:          r.Status,
 		CreatedAt:       r.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:       r.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
+}
+
+func FromReservationPage(page port.ReservationPage) ReservationListResponse {
+	items := make([]ReservationResponse, len(page.Items))
+	for i, item := range page.Items {
+		items[i] = FromReservationModel(item)
+	}
+	return ReservationListResponse{
+		Data: items,
+		Pagination: PaginationResponse{
+			Page: page.Page, PageSize: page.PageSize, TotalItems: page.TotalItems, TotalPages: page.TotalPages,
+		},
 	}
 }

@@ -42,7 +42,7 @@ func main() {
 		envRepo = persistence.NewMemoryEnvironmentRepository()
 		availabilityRuleRepo = persistence.NewMemoryAvailabilityRuleRepository(envRepo)
 		maintenanceRepo = persistence.NewMemoryMaintenanceRepository(envRepo)
-		reservationRepo = persistence.NewMemoryReservationRepository()
+		reservationRepo = persistence.NewMemoryReservationRepository(envRepo)
 		log.Println("using in-memory repositories with default seed data")
 	}
 
@@ -93,7 +93,7 @@ func main() {
 	maintenanceHandler := httpAdapter.NewMaintenanceHandler(maintenanceUseCase)
 	maintenanceHandler.RegisterRoutes(mux, authMiddleware)
 
-	// Register HU-ENV-007 route (POST /reservations)
+	// Register HU-ENV-007/008 routes (/reservations)
 	reservationUseCase := usecase.NewReservationUseCase(reservationRepo, envRepo)
 	reservationHandler := httpAdapter.NewReservationHandler(reservationUseCase)
 	reservationHandler.RegisterRoutes(mux, authMiddleware)
