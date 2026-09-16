@@ -60,6 +60,49 @@ func (r *PostgresReservationRepository) Create(ctx context.Context, reservation 
 	return err
 }
 
+func (r *PostgresReservationRepository) Update(ctx context.Context, reservation *model.Reservation) error {
+	result, err := r.db.ExecContext(ctx, `
+        UPDATE training_environment.reservation
+        SET reservation_date = $1,
+            start_time = $2,
+            end_time = $3,
+            reason = $4,
+            status = $5,
+            updated_at = $6
+        WHERE id = $7
+    `,
+		reservation.ReservationDate.Format("2006-01-02"),
+		reservation.StartTime,
+		reservation.EndTime,
+		reservation.Reason,
+		reservation.Status,
+		reservation.UpdatedAt,
+		reservation.ID,
+	)
+	if err != nil {
+		var postgresErr *pq.Error
+		if errors.As(err, &postgresErr) {
+			switch string(postgresErr.Code) {
+			case "23P01":
+				return usecase.ErrReservationOverlap
+			case "23503":
+				return usecase.ErrReservationInvalidEnvironment
+			case "23514":
+				return usecase.ErrReservationValidation
+			case "22001":
+				return model.ErrReservationReasonTooLong
+			}
+		}
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err == nil && rowsAffected == 0 {
+		return usecase.ErrReservationNotFound
+	}
+	return nil
+}
+
 func (r *PostgresReservationRepository) FindByID(ctx context.Context, id, trainingCenterID string) (*model.Reservation, error) {
 	args := []interface{}{id}
 	where := "r.id = $1"

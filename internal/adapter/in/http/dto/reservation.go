@@ -15,6 +15,14 @@ type CreateReservationRequest struct {
 	Reason          *string `json:"reason"`
 }
 
+type UpdateReservationRequest struct {
+	ReservationDate *string `json:"reservation_date,omitempty"`
+	StartTime       *string `json:"start_time,omitempty"`
+	EndTime         *string `json:"end_time,omitempty"`
+	Reason          *string `json:"reason,omitempty"`
+	Status          *string `json:"status,omitempty"`
+}
+
 type ReservationResponse struct {
 	ID              string  `json:"id"`
 	EnvironmentID   string  `json:"environment_id"`
@@ -54,6 +62,36 @@ func (r CreateReservationRequest) Command(requesterID string) (port.CreateReserv
 		Reason:          r.Reason,
 		RequesterID:     requesterID,
 	}, nil
+}
+
+func (r UpdateReservationRequest) Command(id string) (port.UpdateReservationCommand, error) {
+	cmd := port.UpdateReservationCommand{
+		ID:     id,
+		Reason: r.Reason,
+		Status: r.Status,
+	}
+	if r.ReservationDate != nil {
+		d, err := time.Parse(time.DateOnly, *r.ReservationDate)
+		if err != nil {
+			return port.UpdateReservationCommand{}, err
+		}
+		cmd.ReservationDate = &d
+	}
+	if r.StartTime != nil {
+		st, err := model.NormalizeReservationClock(*r.StartTime)
+		if err != nil {
+			return port.UpdateReservationCommand{}, err
+		}
+		cmd.StartTime = &st
+	}
+	if r.EndTime != nil {
+		et, err := model.NormalizeReservationClock(*r.EndTime)
+		if err != nil {
+			return port.UpdateReservationCommand{}, err
+		}
+		cmd.EndTime = &et
+	}
+	return cmd, nil
 }
 
 func FromReservationModel(r model.Reservation) ReservationResponse {

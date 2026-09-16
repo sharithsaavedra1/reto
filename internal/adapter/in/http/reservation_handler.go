@@ -28,6 +28,8 @@ func (h *ReservationHandler) RegisterRoutes(mux *http.ServeMux, auth *middleware
 	mux.HandleFunc("GET /reservations", auth.RequireFeature("ENV_VIEW", h.List))
 	mux.HandleFunc("GET /reservations/{id}", auth.RequireFeature("ENV_VIEW", h.Get))
 	mux.HandleFunc("POST /reservations", auth.RequireFeature("ENV_RESERVATION_MANAGE", h.Create))
+	mux.HandleFunc("PATCH /reservations/{id}", auth.RequireFeature("ENV_RESERVATION_MANAGE", h.Update))
+	mux.HandleFunc("DELETE /reservations/{id}", auth.RequireFeature("ENV_RESERVATION_MANAGE", h.Cancel))
 }
 
 func (h *ReservationHandler) List(w http.ResponseWriter, r *http.Request) {
@@ -118,8 +120,69 @@ func (h *ReservationHandler) Create(w http.ResponseWriter, r *http.Request) {
 	response.WriteJSON(w, http.StatusCreated, dto.FromReservationModel(*created))
 }
 
+func (h *ReservationHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 {
+			id = strings.TrimSpace(parts[1])
+		}
+	}
+	if !model.IsValidUUID(id) {
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "Reserva no encontrada.", nil)
+		return
+	}
+
+	var request dto.UpdateReservationRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&request); err != nil {
+		writeReservationValidationError(w, r, "Payload JSON inválido.", nil)
+		return
+	}
+
+	command, err := request.Command(id)
+	if err != nil {
+		writeReservationValidationError(w, r, "reservation_date debe usar YYYY-MM-DD y start_time/end_time deben usar HH:MM o HH:MM:SS.", nil)
+		return
+	}
+
+	updated, err := h.useCase.Update(r.Context(), command)
+	if err != nil {
+		h.writeError(w, r, err)
+		return
+	}
+	response.WriteJSON(w, http.StatusOK, dto.FromReservationModel(*updated))
+}
+
+func (h *ReservationHandler) Cancel(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) >= 2 {
+			id = strings.TrimSpace(parts[1])
+		}
+	}
+	if !model.IsValidUUID(id) {
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "Reserva no encontrada.", nil)
+		return
+	}
+
+	err := h.useCase.Cancel(r.Context(), id)
+	if err != nil {
+		if errors.Is(err, usecase.ErrReservationNotFound) {
+			response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "Reserva no encontrada.", nil)
+			return
+		}
+		response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "No fue posible cancelar la reserva.", nil)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (h *ReservationHandler) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, usecase.ErrReservationNotFound):
+		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "Reserva no encontrada.", nil)
 	case errors.Is(err, usecase.ErrReservationOverlap):
 		response.WriteError(w, r, http.StatusConflict, "RESERVATION_OVERLAP", "El ambiente ya está reservado en ese rango.", []map[string]string{
 			{"field": "reservation_date", "issue": "OVERLAPS_EXISTING_RESERVATION"},
@@ -135,10 +198,11 @@ func (h *ReservationHandler) writeError(w http.ResponseWriter, r *http.Request, 
 		errors.Is(err, model.ErrInvalidReservationStartTime),
 		errors.Is(err, model.ErrInvalidReservationEndTime),
 		errors.Is(err, model.ErrInvalidReservationTimeRange),
+		errors.Is(err, model.ErrInvalidReservationStatus),
 		errors.Is(err, model.ErrReservationReasonTooLong):
 		writeReservationValidationError(w, r, err.Error(), nil)
 	default:
-		response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "No fue posible crear la reserva.", nil)
+		response.WriteError(w, r, http.StatusInternalServerError, "INTERNAL_SERVER_ERROR", "No fue posible procesar la reserva.", nil)
 	}
 }
 

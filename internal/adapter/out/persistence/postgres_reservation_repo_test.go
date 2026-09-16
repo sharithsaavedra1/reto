@@ -193,3 +193,129 @@ func TestPostgresReservationRepository_HU007_RealExclusionConstraintAndSQLStateM
 		t.Fatalf("adjacent reservation should be accepted: %v", err)
 	}
 }
+
+func TestPostgresReservationRepository_HU009_UpdateAndCancel(t *testing.T) {
+	db := getTestPostgresDB(t)
+	if db == nil {
+		return
+	}
+	defer db.Close()
+
+	ctx := context.Background()
+	const (
+		typeID        = "b1b2c3d4-e5f6-4789-9012-3456789ab901"
+		environmentID = "b1b2c3d4-e5f6-4789-9012-3456789ab902"
+		requesterID   = "b1b2c3d4-e5f6-4789-9012-3456789ab903"
+		secondUserID  = "b1b2c3d4-e5f6-4789-9012-3456789ab904"
+		res1ID        = "b1b2c3d4-e5f6-4789-9012-3456789ab905"
+		res2ID        = "b1b2c3d4-e5f6-4789-9012-3456789ab906"
+	)
+
+	cleanup := func() {
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.reservation WHERE environment_id = $1`, environmentID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment WHERE id = $1`, environmentID)
+		_, _ = db.ExecContext(ctx, `DELETE FROM training_environment.environment_type WHERE id = $1`, typeID)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO training_environment.environment_type (id, code, name)
+		VALUES ($1, 'HU009-IT', 'HU009 Integration Type')`, typeID); err != nil {
+		t.Fatalf("failed to insert environment type: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO training_environment.environment
+		(id, environment_type_id, training_center_id, name, capacity)
+		VALUES ($1, $2, 'c1d2e3f4-a5b6-7890-1234-56789abcdef0', 'HU009 Environment', 25)`, environmentID, typeID); err != nil {
+		t.Fatalf("failed to insert environment: %v", err)
+	}
+
+	repo := persistence.NewPostgresReservationRepository(db)
+	now := time.Now().UTC()
+
+	// Create initial reservation 1: 08:00 - 10:00
+	initialReason := "Initial Reason"
+	r1 := &model.Reservation{
+		ID:              res1ID,
+		EnvironmentID:   environmentID,
+		RequesterID:     requesterID,
+		ReservationDate: time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC),
+		StartTime:       "08:00:00",
+		EndTime:         "10:00:00",
+		Reason:          &initialReason,
+		Status:          model.ReservationStatusPending,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := repo.Create(ctx, r1); err != nil {
+		t.Fatalf("failed to create r1: %v", err)
+	}
+
+	// Create initial reservation 2: 14:00 - 16:00
+	r2 := &model.Reservation{
+		ID:              res2ID,
+		EnvironmentID:   environmentID,
+		RequesterID:     secondUserID,
+		ReservationDate: time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC),
+		StartTime:       "14:00:00",
+		EndTime:         "16:00:00",
+		Status:          model.ReservationStatusPending,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := repo.Create(ctx, r2); err != nil {
+		t.Fatalf("failed to create r2: %v", err)
+	}
+
+	// 1. Successful Update of r1
+	updatedReason := "Reprogrammed reason"
+	r1.StartTime = "09:00:00"
+	r1.EndTime = "11:00:00"
+	r1.Reason = &updatedReason
+	r1.Status = model.ReservationStatusConfirmed
+	r1.UpdatedAt = time.Now().UTC()
+
+	if err := repo.Update(ctx, r1); err != nil {
+		t.Fatalf("expected update to succeed: %v", err)
+	}
+
+	foundR1, err := repo.FindByID(ctx, res1ID, "")
+	if err != nil || foundR1 == nil {
+		t.Fatalf("failed to find updated r1: %v", err)
+	}
+	if foundR1.StartTime != "09:00:00" || foundR1.EndTime != "11:00:00" || foundR1.Status != model.ReservationStatusConfirmed {
+		t.Fatalf("updated fields do not match: %+v", foundR1)
+	}
+
+	// 2. Overlap error on Update: Try updating r2 to 10:00 - 12:00 (overlaps with r1 09:00 - 11:00)
+	r2.StartTime = "10:00:00"
+	r2.EndTime = "12:00:00"
+	if err := repo.Update(ctx, r2); !errors.Is(err, usecase.ErrReservationOverlap) {
+		t.Fatalf("expected ErrReservationOverlap on Postgres exclusion constraint, got %v", err)
+	}
+
+	// 3. Cancel r2: update status to CANCELLED
+	r2.StartTime = "14:00:00"
+	r2.EndTime = "16:00:00"
+	r2.Status = model.ReservationStatusCancelled
+	r2.UpdatedAt = time.Now().UTC()
+	if err := repo.Update(ctx, r2); err != nil {
+		t.Fatalf("expected cancelling r2 to succeed: %v", err)
+	}
+
+	// 4. Non-existent reservation update returns ErrReservationNotFound
+	nonExistent := &model.Reservation{
+		ID:              "c1b2c3d4-e5f6-4789-9012-3456789ab999",
+		EnvironmentID:   environmentID,
+		RequesterID:     requesterID,
+		ReservationDate: time.Date(2026, time.September, 28, 0, 0, 0, 0, time.UTC),
+		StartTime:       "16:00:00",
+		EndTime:         "17:00:00",
+		Status:          model.ReservationStatusPending,
+		UpdatedAt:       time.Now().UTC(),
+	}
+	if err := repo.Update(ctx, nonExistent); !errors.Is(err, usecase.ErrReservationNotFound) {
+		t.Fatalf("expected ErrReservationNotFound for missing reservation, got %v", err)
+	}
+}
