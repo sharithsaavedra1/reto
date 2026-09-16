@@ -12,6 +12,8 @@ import (
 
 type reservationRepoStub struct {
 	created *model.Reservation
+	found   *model.Reservation
+	page    *port.ReservationPage
 	err     error
 }
 
@@ -22,6 +24,23 @@ func (r *reservationRepoStub) Create(_ context.Context, reservation *model.Reser
 	copy := *reservation
 	r.created = &copy
 	return nil
+}
+
+func (r *reservationRepoStub) FindByID(context.Context, string, string) (*model.Reservation, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.found, nil
+}
+
+func (r *reservationRepoStub) Query(context.Context, port.ReservationListQuery) (*port.ReservationPage, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	if r.page == nil {
+		return &port.ReservationPage{}, nil
+	}
+	return r.page, nil
 }
 
 type reservationEnvironmentRepoStub struct {
@@ -100,4 +119,42 @@ func TestReservationUseCase_HU007_EnvironmentAndOverlapErrors(t *testing.T) {
 			t.Fatalf("expected overlap, got %v", err)
 		}
 	})
+}
+
+func TestReservationUseCase_HU008_QueryAndDetail(t *testing.T) {
+	reservation := &model.Reservation{ID: "a1111111-1111-4111-8111-111111111111"}
+	repo := &reservationRepoStub{
+		found: reservation,
+		page:  &port.ReservationPage{Items: []model.Reservation{*reservation}, Page: 1, PageSize: 20, TotalItems: 1, TotalPages: 1},
+	}
+	uc := NewReservationUseCase(repo, nil)
+
+	got, err := uc.GetByID(context.Background(), reservation.ID, "")
+	if err != nil || got.ID != reservation.ID {
+		t.Fatalf("expected reservation detail, got %+v err=%v", got, err)
+	}
+	page, err := uc.Query(context.Background(), port.ReservationListQuery{})
+	if err != nil || page.Page != 1 || page.PageSize != 20 || len(page.Items) != 1 {
+		t.Fatalf("unexpected page: %+v err=%v", page, err)
+	}
+}
+
+func TestReservationUseCase_HU008_QueryValidation(t *testing.T) {
+	uc := NewReservationUseCase(&reservationRepoStub{}, nil)
+	badUUID := port.ReservationListQuery{EnvironmentID: "bad"}
+	if _, err := uc.Query(context.Background(), badUUID); !errors.Is(err, ErrReservationQuery) {
+		t.Fatalf("expected invalid query for bad environment id, got %v", err)
+	}
+	badStatus := port.ReservationListQuery{Status: "ACTIVE"}
+	if _, err := uc.Query(context.Background(), badStatus); !errors.Is(err, ErrReservationQuery) {
+		t.Fatalf("expected invalid query for status, got %v", err)
+	}
+	from := time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC)
+	to := from
+	if _, err := uc.Query(context.Background(), port.ReservationListQuery{From: &from, To: &to}); !errors.Is(err, ErrReservationQuery) {
+		t.Fatalf("expected invalid query for empty date range, got %v", err)
+	}
+	if _, err := uc.GetByID(context.Background(), "bad", ""); !errors.Is(err, ErrReservationNotFound) {
+		t.Fatalf("expected invalid id to behave as not found, got %v", err)
+	}
 }

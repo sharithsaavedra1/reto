@@ -18,4 +18,6 @@ type CreateReservationCommand struct {
 
 type ReservationUseCase interface {
 	Create(ctx context.Context, command CreateReservationCommand) (*model.Reservation, error)
+	GetByID(ctx context.Context, id, trainingCenterID string) (*model.Reservation, error)
+	Query(ctx context.Context, query ReservationListQuery) (*ReservationPage, error)
 }

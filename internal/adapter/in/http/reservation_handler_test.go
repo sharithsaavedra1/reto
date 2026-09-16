@@ -24,7 +24,7 @@ const (
 
 func setupReservationServer() *http.ServeMux {
 	envRepo := persistence.NewMemoryEnvironmentRepository()
-	reservationRepo := persistence.NewMemoryReservationRepository()
+	reservationRepo := persistence.NewMemoryReservationRepository(envRepo)
 	uc := usecase.NewReservationUseCase(reservationRepo, envRepo)
 	auth := middleware.NewAuthMiddleware(testJWTSecret)
 	mux := http.NewServeMux()

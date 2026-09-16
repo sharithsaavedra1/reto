@@ -49,8 +49,7 @@ func TestPostgresReservationRepository_HU007_RealExclusionConstraintAndSQLStateM
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
-		ALTER TABLE training_environment.environment
-            ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
 		CREATE TABLE IF NOT EXISTS training_environment.reservation (
 			id UUID PRIMARY KEY,
 			environment_id UUID NOT NULL,
