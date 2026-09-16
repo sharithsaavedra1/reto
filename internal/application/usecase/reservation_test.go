@@ -12,6 +12,7 @@ import (
 
 type reservationRepoStub struct {
 	created *model.Reservation
+	updated *model.Reservation
 	found   *model.Reservation
 	page    *port.ReservationPage
 	err     error
@@ -23,6 +24,15 @@ func (r *reservationRepoStub) Create(_ context.Context, reservation *model.Reser
 	}
 	copy := *reservation
 	r.created = &copy
+	return nil
+}
+
+func (r *reservationRepoStub) Update(_ context.Context, reservation *model.Reservation) error {
+	if r.err != nil {
+		return r.err
+	}
+	copy := *reservation
+	r.updated = &copy
 	return nil
 }
 
@@ -157,4 +167,173 @@ func TestReservationUseCase_HU008_QueryValidation(t *testing.T) {
 	if _, err := uc.GetByID(context.Background(), "bad", ""); !errors.Is(err, ErrReservationNotFound) {
 		t.Fatalf("expected invalid id to behave as not found, got %v", err)
 	}
+}
+
+func TestReservationUseCase_HU009_UpdateReservation(t *testing.T) {
+	const resID = "a1111111-1111-4111-8111-111111111111"
+	const envID = "6f674be8-24a4-4759-9226-9b9574ba9643"
+	const reqID = "d8231174-567b-40b0-8ab5-4af992406cf6"
+	now := time.Now().UTC()
+
+	existing := &model.Reservation{
+		ID:              resID,
+		EnvironmentID:   envID,
+		RequesterID:     reqID,
+		ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+		StartTime:       "08:00:00",
+		EndTime:         "10:00:00",
+		Status:          model.ReservationStatusPending,
+		CreatedAt:       now.Add(-time.Hour),
+		UpdatedAt:       now.Add(-time.Hour),
+	}
+
+	t.Run("successful update of fields", func(t *testing.T) {
+		repo := &reservationRepoStub{found: existing}
+		uc := NewReservationUseCase(repo, nil)
+
+		newDate := time.Date(2026, 9, 21, 0, 0, 0, 0, time.UTC)
+		newStart := "09:00"
+		newEnd := "11:00"
+		newReason := "Ajuste de horario"
+		newStatus := model.ReservationStatusConfirmed
+
+		updated, err := uc.Update(context.Background(), port.UpdateReservationCommand{
+			ID:              resID,
+			ReservationDate: &newDate,
+			StartTime:       &newStart,
+			EndTime:         &newEnd,
+			Reason:          &newReason,
+			Status:          &newStatus,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if updated.StartTime != "09:00:00" || updated.EndTime != "11:00:00" || updated.Status != model.ReservationStatusConfirmed {
+			t.Fatalf("unexpected updated reservation: %+v", updated)
+		}
+		if updated.Reason == nil || *updated.Reason != newReason {
+			t.Fatalf("unexpected reason: %v", updated.Reason)
+		}
+		if repo.updated == nil || repo.updated.ID != resID {
+			t.Fatalf("repository update was not called")
+		}
+	})
+
+	t.Run("reservation not found", func(t *testing.T) {
+		repo := &reservationRepoStub{found: nil}
+		uc := NewReservationUseCase(repo, nil)
+
+		_, err := uc.Update(context.Background(), port.UpdateReservationCommand{
+			ID: resID,
+		})
+		if !errors.Is(err, ErrReservationNotFound) {
+			t.Fatalf("expected ErrReservationNotFound, got %v", err)
+		}
+	})
+
+	t.Run("overlap conflict on update", func(t *testing.T) {
+		repo := &reservationRepoStub{found: existing, err: ErrReservationOverlap}
+		uc := NewReservationUseCase(repo, nil)
+
+		newStart := "08:30"
+		_, err := uc.Update(context.Background(), port.UpdateReservationCommand{
+			ID:        resID,
+			StartTime: &newStart,
+		})
+		if !errors.Is(err, ErrReservationOverlap) {
+			t.Fatalf("expected ErrReservationOverlap, got %v", err)
+		}
+	})
+
+	t.Run("invalid status", func(t *testing.T) {
+		repo := &reservationRepoStub{found: existing}
+		uc := NewReservationUseCase(repo, nil)
+
+		invalidStatus := "INVALID_STATUS"
+		_, err := uc.Update(context.Background(), port.UpdateReservationCommand{
+			ID:     resID,
+			Status: &invalidStatus,
+		})
+		if !errors.Is(err, model.ErrInvalidReservationStatus) {
+			t.Fatalf("expected ErrInvalidReservationStatus, got %v", err)
+		}
+	})
+
+	t.Run("invalid time range (end <= start)", func(t *testing.T) {
+		repo := &reservationRepoStub{found: existing}
+		uc := NewReservationUseCase(repo, nil)
+
+		newStart := "12:00"
+		newEnd := "10:00"
+		_, err := uc.Update(context.Background(), port.UpdateReservationCommand{
+			ID:        resID,
+			StartTime: &newStart,
+			EndTime:   &newEnd,
+		})
+		if !errors.Is(err, model.ErrInvalidReservationTimeRange) {
+			t.Fatalf("expected ErrInvalidReservationTimeRange, got %v", err)
+		}
+	})
+}
+
+func TestReservationUseCase_HU009_CancelReservation(t *testing.T) {
+	const resID = "a1111111-1111-4111-8111-111111111111"
+	const envID = "6f674be8-24a4-4759-9226-9b9574ba9643"
+	const reqID = "d8231174-567b-40b0-8ab5-4af992406cf6"
+	now := time.Now().UTC()
+
+	t.Run("cancel active reservation", func(t *testing.T) {
+		existing := &model.Reservation{
+			ID:              resID,
+			EnvironmentID:   envID,
+			RequesterID:     reqID,
+			ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+			StartTime:       "08:00:00",
+			EndTime:         "10:00:00",
+			Status:          model.ReservationStatusPending,
+			CreatedAt:       now.Add(-time.Hour),
+			UpdatedAt:       now.Add(-time.Hour),
+		}
+		repo := &reservationRepoStub{found: existing}
+		uc := NewReservationUseCase(repo, nil)
+
+		err := uc.Cancel(context.Background(), resID)
+		if err != nil {
+			t.Fatalf("unexpected cancel error: %v", err)
+		}
+		if repo.updated == nil || repo.updated.Status != model.ReservationStatusCancelled {
+			t.Fatalf("expected reservation to be updated to CANCELLED")
+		}
+	})
+
+	t.Run("cancel already cancelled reservation is idempotent", func(t *testing.T) {
+		existing := &model.Reservation{
+			ID:              resID,
+			EnvironmentID:   envID,
+			RequesterID:     reqID,
+			ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+			StartTime:       "08:00:00",
+			EndTime:         "10:00:00",
+			Status:          model.ReservationStatusCancelled,
+			CreatedAt:       now.Add(-time.Hour),
+			UpdatedAt:       now.Add(-time.Hour),
+		}
+		repo := &reservationRepoStub{found: existing}
+		uc := NewReservationUseCase(repo, nil)
+
+		err := uc.Cancel(context.Background(), resID)
+		if err != nil {
+			t.Fatalf("unexpected cancel error on already cancelled: %v", err)
+		}
+	})
+
+	t.Run("cancel non-existent reservation", func(t *testing.T) {
+		repo := &reservationRepoStub{found: nil}
+		uc := NewReservationUseCase(repo, nil)
+
+		err := uc.Cancel(context.Background(), resID)
+		if !errors.Is(err, ErrReservationNotFound) {
+			t.Fatalf("expected ErrReservationNotFound, got %v", err)
+		}
+	})
 }

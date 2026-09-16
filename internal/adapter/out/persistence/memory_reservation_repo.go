@@ -48,6 +48,39 @@ func (r *MemoryReservationRepository) Create(_ context.Context, reservation *mod
 	return nil
 }
 
+func (r *MemoryReservationRepository) Update(_ context.Context, reservation *model.Reservation) error {
+	newStart, _ := model.ParseReservationClock(reservation.StartTime)
+	newEnd, _ := model.ParseReservationClock(reservation.EndTime)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.items[reservation.ID]; !exists {
+		return usecase.ErrReservationNotFound
+	}
+
+	if reservation.Status != model.ReservationStatusCancelled {
+		for _, existing := range r.items {
+			if existing.ID == reservation.ID {
+				continue
+			}
+			if existing.EnvironmentID != reservation.EnvironmentID ||
+				existing.Status == model.ReservationStatusCancelled ||
+				!sameReservationDate(existing.ReservationDate, reservation.ReservationDate) {
+				continue
+			}
+			existingStart, _ := model.ParseReservationClock(existing.StartTime)
+			existingEnd, _ := model.ParseReservationClock(existing.EndTime)
+			if newStart < existingEnd && existingStart < newEnd {
+				return usecase.ErrReservationOverlap
+			}
+		}
+	}
+
+	r.items[reservation.ID] = *reservation
+	return nil
+}
+
 func (r *MemoryReservationRepository) FindByID(ctx context.Context, id, trainingCenterID string) (*model.Reservation, error) {
 	r.mu.RLock()
 	item, exists := r.items[id]

@@ -35,4 +35,5 @@ type ReservationRepository interface {
 	Create(ctx context.Context, reservation *model.Reservation) error
 	FindByID(ctx context.Context, id, trainingCenterID string) (*model.Reservation, error)
 	Query(ctx context.Context, query ReservationListQuery) (*ReservationPage, error)
+	Update(ctx context.Context, reservation *model.Reservation) error
 }

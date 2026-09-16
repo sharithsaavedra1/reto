@@ -31,11 +31,11 @@ func NewReservationUseCase(repo port.ReservationRepository, envRepo port.Environ
 func (u *reservationUseCase) Create(ctx context.Context, command port.CreateReservationCommand) (*model.Reservation, error) {
 	startTime, err := model.NormalizeReservationClock(command.StartTime)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationStartTime)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStartTime)
 	}
 	endTime, err := model.NormalizeReservationClock(command.EndTime)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationEndTime)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationEndTime)
 	}
 
 	now := time.Now().UTC()
@@ -52,7 +52,7 @@ func (u *reservationUseCase) Create(ctx context.Context, command port.CreateRese
 		UpdatedAt:       now,
 	}
 	if err := reservation.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, err)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, err)
 	}
 
 	if u.envRepo != nil {
@@ -146,4 +146,92 @@ func (u *reservationUseCase) Query(ctx context.Context, query port.ReservationLi
 		page.Items = []model.Reservation{}
 	}
 	return page, nil
+}
+
+func (u *reservationUseCase) Update(ctx context.Context, command port.UpdateReservationCommand) (*model.Reservation, error) {
+	id := strings.TrimSpace(command.ID)
+	if !model.IsValidUUID(id) {
+		return nil, ErrReservationNotFound
+	}
+
+	existing, err := u.repo.FindByID(ctx, id, "")
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrReservationNotFound
+	}
+
+	if command.ReservationDate != nil {
+		if command.ReservationDate.IsZero() {
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationDate)
+		}
+		existing.ReservationDate = dateOnly(*command.ReservationDate)
+	}
+
+	if command.StartTime != nil {
+		startTime, err := model.NormalizeReservationClock(*command.StartTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStartTime)
+		}
+		existing.StartTime = startTime
+	}
+
+	if command.EndTime != nil {
+		endTime, err := model.NormalizeReservationClock(*command.EndTime)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationEndTime)
+		}
+		existing.EndTime = endTime
+	}
+
+	if command.Reason != nil {
+		existing.Reason = command.Reason
+	}
+
+	if command.Status != nil {
+		status := strings.TrimSpace(*command.Status)
+		switch status {
+		case model.ReservationStatusPending, model.ReservationStatusConfirmed, model.ReservationStatusCancelled:
+			existing.Status = status
+		default:
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStatus)
+		}
+	}
+
+	existing.UpdatedAt = time.Now().UTC()
+
+	if err := existing.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, err)
+	}
+
+	if err := u.repo.Update(ctx, existing); err != nil {
+		return nil, err
+	}
+	return existing, nil
+}
+
+func (u *reservationUseCase) Cancel(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if !model.IsValidUUID(id) {
+		return ErrReservationNotFound
+	}
+
+	existing, err := u.repo.FindByID(ctx, id, "")
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return ErrReservationNotFound
+	}
+
+	// Idempotent: already cancelled returns success without errors
+	if existing.Status == model.ReservationStatusCancelled {
+		return nil
+	}
+
+	existing.Status = model.ReservationStatusCancelled
+	existing.UpdatedAt = time.Now().UTC()
+
+	return u.repo.Update(ctx, existing)
 }
