@@ -63,11 +63,7 @@ func setupReservationQueryServer(t *testing.T) *http.ServeMux {
 }
 
 // helper keeps the setup focused while returning the real application use case.
-func usecaseForReservationQuery(repo interface {
-	Create(context.Context, *model.Reservation) error
-	FindByID(context.Context, string, string) (*model.Reservation, error)
-	Query(context.Context, port.ReservationListQuery) (*port.ReservationPage, error)
-}, envRepo port.EnvironmentRepository) port.ReservationUseCase {
+func usecaseForReservationQuery(repo port.ReservationRepository, envRepo port.EnvironmentRepository) port.ReservationUseCase {
 	return usecase.NewReservationUseCase(repo, envRepo)
 }
 

@@ -172,11 +172,13 @@ func TestReservationUseCase_HU008_QueryValidation(t *testing.T) {
 func TestReservationUseCase_HU009_UpdateReservation(t *testing.T) {
 	const resID = "a1111111-1111-4111-8111-111111111111"
 	const envID = "6f674be8-24a4-4759-9226-9b9574ba9643"
+	const reqID = "d8231174-567b-40b0-8ab5-4af992406cf6"
 	now := time.Now().UTC()
 
 	existing := &model.Reservation{
 		ID:              resID,
 		EnvironmentID:   envID,
+		RequesterID:     reqID,
 		ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
 		StartTime:       "08:00:00",
 		EndTime:         "10:00:00",
@@ -277,12 +279,20 @@ func TestReservationUseCase_HU009_UpdateReservation(t *testing.T) {
 func TestReservationUseCase_HU009_CancelReservation(t *testing.T) {
 	const resID = "a1111111-1111-4111-8111-111111111111"
 	const envID = "6f674be8-24a4-4759-9226-9b9574ba9643"
+	const reqID = "d8231174-567b-40b0-8ab5-4af992406cf6"
+	now := time.Now().UTC()
 
 	t.Run("cancel active reservation", func(t *testing.T) {
 		existing := &model.Reservation{
-			ID:            resID,
-			EnvironmentID: envID,
-			Status:        model.ReservationStatusPending,
+			ID:              resID,
+			EnvironmentID:   envID,
+			RequesterID:     reqID,
+			ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+			StartTime:       "08:00:00",
+			EndTime:         "10:00:00",
+			Status:          model.ReservationStatusPending,
+			CreatedAt:       now.Add(-time.Hour),
+			UpdatedAt:       now.Add(-time.Hour),
 		}
 		repo := &reservationRepoStub{found: existing}
 		uc := NewReservationUseCase(repo, nil)
@@ -298,9 +308,15 @@ func TestReservationUseCase_HU009_CancelReservation(t *testing.T) {
 
 	t.Run("cancel already cancelled reservation is idempotent", func(t *testing.T) {
 		existing := &model.Reservation{
-			ID:            resID,
-			EnvironmentID: envID,
-			Status:        model.ReservationStatusCancelled,
+			ID:              resID,
+			EnvironmentID:   envID,
+			RequesterID:     reqID,
+			ReservationDate: time.Date(2026, 9, 20, 0, 0, 0, 0, time.UTC),
+			StartTime:       "08:00:00",
+			EndTime:         "10:00:00",
+			Status:          model.ReservationStatusCancelled,
+			CreatedAt:       now.Add(-time.Hour),
+			UpdatedAt:       now.Add(-time.Hour),
 		}
 		repo := &reservationRepoStub{found: existing}
 		uc := NewReservationUseCase(repo, nil)

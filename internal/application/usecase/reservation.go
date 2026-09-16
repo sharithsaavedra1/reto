@@ -31,11 +31,11 @@ func NewReservationUseCase(repo port.ReservationRepository, envRepo port.Environ
 func (u *reservationUseCase) Create(ctx context.Context, command port.CreateReservationCommand) (*model.Reservation, error) {
 	startTime, err := model.NormalizeReservationClock(command.StartTime)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationStartTime)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStartTime)
 	}
 	endTime, err := model.NormalizeReservationClock(command.EndTime)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationEndTime)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationEndTime)
 	}
 
 	now := time.Now().UTC()
@@ -52,7 +52,7 @@ func (u *reservationUseCase) Create(ctx context.Context, command port.CreateRese
 		UpdatedAt:       now,
 	}
 	if err := reservation.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, err)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, err)
 	}
 
 	if u.envRepo != nil {
@@ -164,7 +164,7 @@ func (u *reservationUseCase) Update(ctx context.Context, command port.UpdateRese
 
 	if command.ReservationDate != nil {
 		if command.ReservationDate.IsZero() {
-			return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationDate)
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationDate)
 		}
 		existing.ReservationDate = dateOnly(*command.ReservationDate)
 	}
@@ -172,7 +172,7 @@ func (u *reservationUseCase) Update(ctx context.Context, command port.UpdateRese
 	if command.StartTime != nil {
 		startTime, err := model.NormalizeReservationClock(*command.StartTime)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationStartTime)
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStartTime)
 		}
 		existing.StartTime = startTime
 	}
@@ -180,7 +180,7 @@ func (u *reservationUseCase) Update(ctx context.Context, command port.UpdateRese
 	if command.EndTime != nil {
 		endTime, err := model.NormalizeReservationClock(*command.EndTime)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationEndTime)
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationEndTime)
 		}
 		existing.EndTime = endTime
 	}
@@ -195,14 +195,14 @@ func (u *reservationUseCase) Update(ctx context.Context, command port.UpdateRese
 		case model.ReservationStatusPending, model.ReservationStatusConfirmed, model.ReservationStatusCancelled:
 			existing.Status = status
 		default:
-			return nil, fmt.Errorf("%w: %v", ErrReservationValidation, model.ErrInvalidReservationStatus)
+			return nil, fmt.Errorf("%w: %w", ErrReservationValidation, model.ErrInvalidReservationStatus)
 		}
 	}
 
 	existing.UpdatedAt = time.Now().UTC()
 
 	if err := existing.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrReservationValidation, err)
+		return nil, fmt.Errorf("%w: %w", ErrReservationValidation, err)
 	}
 
 	if err := u.repo.Update(ctx, existing); err != nil {
