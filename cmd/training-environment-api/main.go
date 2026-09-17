@@ -23,6 +23,7 @@ func main() {
 	var availabilityRuleRepo port.AvailabilityRuleRepository
 	var maintenanceRepo port.MaintenanceRepository
 	var reservationRepo port.ReservationRepository
+	var utilizationRepo port.EnvironmentUtilizationRepository
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL != "" {
@@ -36,6 +37,7 @@ func main() {
 		availabilityRuleRepo = persistence.NewPostgresAvailabilityRuleRepository(db)
 		maintenanceRepo = persistence.NewPostgresMaintenanceRepository(db)
 		reservationRepo = persistence.NewPostgresReservationRepository(db)
+		utilizationRepo = persistence.NewPostgresEnvironmentUtilizationRepository(db)
 		log.Println("connected to PostgreSQL repositories")
 	} else {
 		envTypeRepo = persistence.NewMemoryEnvironmentTypeRepository()
@@ -43,6 +45,7 @@ func main() {
 		availabilityRuleRepo = persistence.NewMemoryAvailabilityRuleRepository(envRepo)
 		maintenanceRepo = persistence.NewMemoryMaintenanceRepository(envRepo)
 		reservationRepo = persistence.NewMemoryReservationRepository(envRepo)
+		utilizationRepo = persistence.NewMemoryEnvironmentUtilizationRepository(envRepo, envTypeRepo, availabilityRuleRepo, maintenanceRepo, reservationRepo)
 		log.Println("using in-memory repositories with default seed data")
 	}
 
@@ -97,6 +100,11 @@ func main() {
 	reservationUseCase := usecase.NewReservationUseCase(reservationRepo, envRepo)
 	reservationHandler := httpAdapter.NewReservationHandler(reservationUseCase)
 	reservationHandler.RegisterRoutes(mux, authMiddleware)
+
+	// Register HU-ENV-010 routes (/reports/environment-utilization)
+	utilizationUseCase := usecase.NewEnvironmentUtilizationUseCase(utilizationRepo)
+	utilizationHandler := httpAdapter.NewEnvironmentUtilizationHandler(utilizationUseCase)
+	utilizationHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
 	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
