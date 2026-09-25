@@ -231,9 +231,9 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 		t.Fatalf("expected 422 Unprocessable Entity for empty code, got: %d (%s)", recEmptyCode.Code, recEmptyCode.Body.String())
 	}
 
-	// Invalid payload: code exceeds 30 chars (422 Unprocessable Entity)
+	// Invalid payload: code exceeds 20 chars (422 Unprocessable Entity)
 	tooLongCodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
-		Code: strings.Repeat("X", 31),
+		Code: strings.Repeat("X", 21),
 		Name: "Valid Name",
 	})
 	reqTooLong := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(tooLongCodeBody))
@@ -243,22 +243,22 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 	mux.ServeHTTP(recTooLong, reqTooLong)
 
 	if recTooLong.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for code > 30, got: %d (%s)", recTooLong.Code, recTooLong.Body.String())
+		t.Fatalf("expected 422 for code > 20, got: %d (%s)", recTooLong.Code, recTooLong.Body.String())
 	}
 
-	// Valid payload: code exactly 30 chars (201 Created)
-	valid30CodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
-		Code: strings.Repeat("Y", 30),
-		Name: "Tipo Código 30",
+	// Valid payload: code exactly 20 chars (201 Created)
+	valid20CodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
+		Code: strings.Repeat("Y", 20),
+		Name: "Tipo Código 20",
 	})
-	reqValid30 := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(valid30CodeBody))
-	reqValid30.Header.Set("Authorization", "Bearer "+token)
-	reqValid30.Header.Set("Content-Type", "application/json")
-	recValid30 := httptest.NewRecorder()
-	mux.ServeHTTP(recValid30, reqValid30)
+	reqValid20 := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(valid20CodeBody))
+	reqValid20.Header.Set("Authorization", "Bearer "+token)
+	reqValid20.Header.Set("Content-Type", "application/json")
+	recValid20 := httptest.NewRecorder()
+	mux.ServeHTTP(recValid20, reqValid20)
 
-	if recValid30.Code != http.StatusCreated {
-		t.Fatalf("expected 201 Created for 30 char code, got: %d (%s)", recValid30.Code, recValid30.Body.String())
+	if recValid20.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for 20 char code, got: %d (%s)", recValid20.Code, recValid20.Body.String())
 	}
 }
 

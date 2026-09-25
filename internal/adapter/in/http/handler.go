@@ -69,8 +69,8 @@ func (h *EnvironmentTypeHandler) Create(w http.ResponseWriter, r *http.Request) 
 	if trimmedCode == "" {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code is required and cannot be empty"})
 	}
-	if utf8.RuneCountInString(trimmedCode) > 30 {
-		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code length must not exceed 30 characters"})
+	if utf8.RuneCountInString(trimmedCode) > 20 {
+		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code length must not exceed 20 characters"})
 	}
 	if req.Description != nil && utf8.RuneCountInString(*req.Description) > 255 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "description", Message: "description length must not exceed 255 characters"})
