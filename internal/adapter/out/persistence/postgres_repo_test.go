@@ -23,7 +23,7 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 		CREATE SCHEMA IF NOT EXISTS training_environment;
 		CREATE TABLE IF NOT EXISTS training_environment.environment_type (
 			id VARCHAR(36) PRIMARY KEY,
-			code VARCHAR(20) UNIQUE NOT NULL,
+			code VARCHAR(30) UNIQUE NOT NULL,
 			name VARCHAR(100) NOT NULL,
 			description VARCHAR(255),
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -81,7 +81,7 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 		t.Fatalf("failed to find environment type by code: %v, found: %+v", err, byCode)
 	}
 
-	// 5. Test Duplicate Conflict mapping
+	// 5. Test Duplicate Code Conflict mapping (E2)
 	dupEntity := &model.EnvironmentType{
 		ID:        "e5f6a7b8-9012-3456-7890-123456789012",
 		Code:      "LAB-TEST", // Duplicate code
@@ -91,5 +91,19 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 	dupErr := repo.Save(ctx, dupEntity)
 	if dupErr != usecase.ErrConflictCode && dupErr != usecase.ErrConflictName {
 		t.Fatalf("expected ErrConflictCode or ErrConflictName for duplicate code, got: %v", dupErr)
+	}
+
+	// 6. Test FindAll
+	items, err := repo.FindAll(ctx)
+	if err != nil {
+		t.Fatalf("failed to list environment types: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected at least 1 item in FindAll")
+	}
+	for _, it := range items {
+		if it.ID == "" || it.Code == "" || it.Name == "" {
+			t.Fatalf("found item with empty mandatory field: %+v", it)
+		}
 	}
 }

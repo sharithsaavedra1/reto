@@ -24,7 +24,7 @@ func NewPostgresEnvironmentTypeRepository(db *sql.DB) port.EnvironmentTypeReposi
 
 func (r *PostgresEnvironmentTypeRepository) FindAll(ctx context.Context) ([]model.EnvironmentType, error) {
 	query := `
-		SELECT id, COALESCE(code, ''), name, description, created_at
+		SELECT id, code, name, description, created_at
 		FROM training_environment.environment_type
 		ORDER BY created_at ASC
 	`
@@ -57,7 +57,7 @@ func (r *PostgresEnvironmentTypeRepository) FindAll(ctx context.Context) ([]mode
 
 func (r *PostgresEnvironmentTypeRepository) FindByID(ctx context.Context, id string) (*model.EnvironmentType, error) {
 	query := `
-		SELECT id, COALESCE(code, ''), name, description, created_at
+		SELECT id, code, name, description, created_at
 		FROM training_environment.environment_type
 		WHERE id = $1
 	`
@@ -79,7 +79,7 @@ func (r *PostgresEnvironmentTypeRepository) FindByID(ctx context.Context, id str
 
 func (r *PostgresEnvironmentTypeRepository) FindByName(ctx context.Context, name string) (*model.EnvironmentType, error) {
 	query := `
-		SELECT id, COALESCE(code, ''), name, description, created_at
+		SELECT id, code, name, description, created_at
 		FROM training_environment.environment_type
 		WHERE LOWER(name) = LOWER($1)
 	`
@@ -101,7 +101,7 @@ func (r *PostgresEnvironmentTypeRepository) FindByName(ctx context.Context, name
 
 func (r *PostgresEnvironmentTypeRepository) FindByCode(ctx context.Context, code string) (*model.EnvironmentType, error) {
 	query := `
-		SELECT id, COALESCE(code, ''), name, description, created_at
+		SELECT id, code, name, description, created_at
 		FROM training_environment.environment_type
 		WHERE LOWER(code) = LOWER($1)
 	`
@@ -126,15 +126,10 @@ func (r *PostgresEnvironmentTypeRepository) Save(ctx context.Context, entity *mo
 		INSERT INTO training_environment.environment_type (id, code, name, description, created_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`
-	var codeVal *string
-	if entity.Code != "" {
-		codeVal = &entity.Code
-	}
-
-	_, err := r.db.ExecContext(ctx, query, entity.ID, codeVal, entity.Name, entity.Description, entity.CreatedAt)
+	_, err := r.db.ExecContext(ctx, query, entity.ID, entity.Code, entity.Name, entity.Description, entity.CreatedAt)
 	if err != nil {
 		errMsg := strings.ToLower(err.Error())
-		if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "23505") {
+		if strings.Contains(errMsg, "unique") || strings.Contains(errMsg, "23505") || strings.Contains(errMsg, "uq_environment_type_code") || strings.Contains(errMsg, "uq_environment_type_name") {
 			if strings.Contains(errMsg, "code") || strings.Contains(errMsg, "uq_environment_type_code") {
 				return usecase.ErrConflictCode
 			}

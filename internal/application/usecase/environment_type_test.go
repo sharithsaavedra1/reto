@@ -80,4 +80,13 @@ func TestEnvironmentTypeUseCase_Create(t *testing.T) {
 	if err != usecase.ErrConflictCode {
 		t.Fatalf("expected ErrConflictCode, got: %v", err)
 	}
+
+	// Empty Code validation
+	_, err = uc.Create(context.Background(), port.CreateEnvironmentTypeCommand{
+		Code: "   ",
+		Name: "Auditorio 3",
+	})
+	if err == nil {
+		t.Fatalf("expected error for empty code, got nil")
+	}
 }
