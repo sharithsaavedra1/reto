@@ -48,9 +48,13 @@ func TestPostgresEnvironmentTypeRepository_Integration(t *testing.T) {
 			DELETE FROM training_environment.environment_type
 			WHERE id IN ($1, $2, $3, $4) OR code IN ('LAB-TEST', 'CLASSROOM', 'LAB', 'WORKSHOP')
 		`, typeID, seedAulaID, seedLabID, seedTallerID)
+		_, _ = db.ExecContext(ctx, `ALTER TABLE training_environment.environment_type ALTER COLUMN code SET NOT NULL;`)
 	}
 	cleanup()
 	t.Cleanup(cleanup)
+
+	// Ensure column allows NULL for the pre-migration test state
+	_, _ = db.ExecContext(ctx, `ALTER TABLE training_environment.environment_type ALTER COLUMN code DROP NOT NULL;`)
 
 	// Step 2: Insert initial seed records with code = NULL (pre-migration state)
 	_, err = db.ExecContext(ctx, `
