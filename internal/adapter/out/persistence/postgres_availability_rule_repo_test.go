@@ -69,6 +69,13 @@ func TestPostgresAvailabilityRuleRepository_HU005_CRUDAndTransactionalOutbox(t *
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			published_at TIMESTAMPTZ
 		);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_from DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_until DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 	`)
 	if err != nil {
 		skipOrFailPostgres(t, "unable to prepare HU-ENV-005 PostgreSQL tables: %v", err)
@@ -214,6 +221,13 @@ func TestPostgresAvailabilityRuleRepository_HU005_Maximum24Rules(t *testing.T) {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			published_at TIMESTAMPTZ
 		);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_from DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_until DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 	`)
 	if err != nil {
 		skipOrFailPostgres(t, "unable to prepare HU-ENV-005 maximum PostgreSQL tables: %v", err)

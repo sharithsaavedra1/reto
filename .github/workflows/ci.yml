@@ -2,9 +2,9 @@ name: CI - Build and Test
 
 on:
   push:
-    branches: [develop, main]
+    branches: [develop, main, hu-15-dev]
   pull_request:
-    branches: [develop, qa, staging, main]
+    branches: [develop, qa, staging, main, hu-15-dev]
 
 permissions:
   contents: read
@@ -36,8 +36,38 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
           cache: true
+
+      - name: Checkout DB Schema Repository
+        uses: actions/checkout@v4
+        with:
+          repository: code-sena/design-software-training-environment-db
+          ref: ${{ github.base_ref || github.ref_name }}
+          path: db-schema
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install Liquibase CLI
+        run: |
+          wget -q https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz
+          sudo mkdir -p /opt/liquibase
+          sudo tar -xzf liquibase-4.29.2.tar.gz -C /opt/liquibase
+          sudo ln -s /opt/liquibase/liquibase /usr/local/bin/liquibase
+          liquibase --version
+
+      - name: Run Liquibase Migrations (Full changelog-master.yaml)
+        run: |
+          liquibase \
+            --url="jdbc:postgresql://localhost:5432/design_software_test" \
+            --username=postgres \
+            --password=postgrespassword \
+            --changelog-file=db-schema/changelog/changelog-master.yaml \
+            update
 
       - name: Install dependencies
         run: go mod download

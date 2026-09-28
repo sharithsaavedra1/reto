@@ -56,6 +56,7 @@ func TestPostgresReservationRepository_HU008_QueryDetailFiltersScopeAndIndexes(t
         );
         ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
         ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+        ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
         ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
         CREATE TABLE IF NOT EXISTS training_environment.reservation (
@@ -70,6 +71,7 @@ func TestPostgresReservationRepository_HU008_QueryDetailFiltersScopeAndIndexes(t
             reason VARCHAR(255),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
         ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
         ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
         CREATE INDEX IF NOT EXISTS idx_reservation_environment_date

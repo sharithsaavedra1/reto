@@ -26,6 +26,10 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			description VARCHAR(255),
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.environment_type ADD COLUMN IF NOT EXISTS code VARCHAR(30);
+		ALTER TABLE training_environment.environment_type ADD COLUMN IF NOT EXISTS description VARCHAR(255);
+		ALTER TABLE training_environment.environment_type ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 		CREATE TABLE IF NOT EXISTS training_environment.environment (
 			id VARCHAR(36) PRIMARY KEY,
 			environment_type_id VARCHAR(36) NOT NULL,
@@ -37,6 +41,11 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 		CREATE TABLE IF NOT EXISTS training_environment.availability_rule (
 			id VARCHAR(36) PRIMARY KEY,
 			environment_id VARCHAR(36) NOT NULL,
@@ -47,14 +56,23 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			effective_until DATE,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_from DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS effective_until DATE;
+		ALTER TABLE training_environment.availability_rule ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 		CREATE TABLE IF NOT EXISTS training_environment.maintenance (
 			id VARCHAR(36) PRIMARY KEY,
 			environment_id VARCHAR(36) NOT NULL,
 			start_date DATE NOT NULL,
 			end_date DATE NOT NULL,
 			reason TEXT,
-			created_by VARCHAR(36)
+			created_by VARCHAR(36),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.maintenance ADD COLUMN IF NOT EXISTS reason TEXT;
+		ALTER TABLE training_environment.maintenance ADD COLUMN IF NOT EXISTS created_by VARCHAR(36);
+		ALTER TABLE training_environment.maintenance ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 		CREATE TABLE IF NOT EXISTS training_environment.reservation (
 			id VARCHAR(36) PRIMARY KEY,
 			environment_id VARCHAR(36) NOT NULL,
@@ -62,8 +80,16 @@ func TestPostgresEnvironmentRepository_QueryIntegration(t *testing.T) {
 			start_time TIME NOT NULL,
 			end_time TIME NOT NULL,
 			status VARCHAR(20) NOT NULL,
-			requester_id VARCHAR(36)
+			requester_id VARCHAR(36),
+			reason VARCHAR(255),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS requester_id VARCHAR(36);
+		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
+		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+
 		CREATE INDEX IF NOT EXISTS idx_availability_rule_environment_day
 			ON training_environment.availability_rule (environment_id, day_of_week);
 		CREATE INDEX IF NOT EXISTS idx_maintenance_environment_dates
