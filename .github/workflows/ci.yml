@@ -24,7 +24,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d design_software_test"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -44,6 +44,7 @@ jobs:
         with:
           repository: code-sena/design-software-training-environment-db
           ref: ${{ github.base_ref || github.ref_name }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           path: db-schema
 
       - name: Set up Java
