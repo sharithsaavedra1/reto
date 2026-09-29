@@ -66,6 +66,9 @@ func (h *EnvironmentTypeHandler) Create(w http.ResponseWriter, r *http.Request) 
 	if utf8.RuneCountInString(trimmedName) > 100 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "name", Message: "name length must not exceed 100 characters"})
 	}
+	if trimmedCode == "" {
+		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code is required and cannot be empty"})
+	}
 	if utf8.RuneCountInString(trimmedCode) > 20 {
 		validationDetails = append(validationDetails, response.ErrorDetail{Field: "code", Message: "code length must not exceed 20 characters"})
 	}
@@ -98,7 +101,7 @@ func (h *EnvironmentTypeHandler) Create(w http.ResponseWriter, r *http.Request) 
 			})
 			return
 		}
-		if errors.Is(err, usecase.ErrValidation) || errors.Is(err, model.ErrEmptyName) || errors.Is(err, model.ErrNameTooLong) || errors.Is(err, model.ErrCodeTooLong) {
+		if errors.Is(err, usecase.ErrValidation) || errors.Is(err, model.ErrEmptyName) || errors.Is(err, model.ErrNameTooLong) || errors.Is(err, model.ErrEmptyCode) || errors.Is(err, model.ErrCodeTooLong) || errors.Is(err, model.ErrDescTooLong) {
 			response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
 			return
 		}

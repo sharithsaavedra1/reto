@@ -44,11 +44,25 @@ func TestEnvironmentType_Validate(t *testing.T) {
 		t.Fatalf("expected ErrNameTooLong, got: %v", err)
 	}
 
+	// Empty code
+	emptyCode := valid
+	emptyCode.Code = "   "
+	if err := emptyCode.Validate(); err != model.ErrEmptyCode {
+		t.Fatalf("expected ErrEmptyCode, got: %v", err)
+	}
+
 	// Code too long (> 20 characters)
 	longCode := valid
 	longCode.Code = strings.Repeat("C", 21)
 	if err := longCode.Validate(); err != model.ErrCodeTooLong {
-		t.Fatalf("expected ErrCodeTooLong, got: %v", err)
+		t.Fatalf("expected ErrCodeTooLong for >20 chars, got: %v", err)
+	}
+
+	// Valid with 20 characters
+	valid20Code := valid
+	valid20Code.Code = strings.Repeat("C", 20)
+	if err := valid20Code.Validate(); err != nil {
+		t.Fatalf("expected valid 20 character code, got: %v", err)
 	}
 
 	// Description too long (> 255 characters)

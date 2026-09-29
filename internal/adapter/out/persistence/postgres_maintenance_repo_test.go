@@ -69,8 +69,14 @@ func TestPostgresMaintenanceRepository_HU006_CRUDFiltersAndTransactionalOutbox(t
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			published_at TIMESTAMPTZ
 		);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 		ALTER TABLE training_environment.maintenance
 			ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.maintenance
+			ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
 		DO $$
 		BEGIN
 			IF NOT EXISTS (

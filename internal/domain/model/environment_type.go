@@ -10,6 +10,7 @@ import (
 var (
 	ErrEmptyName   = errors.New("name cannot be empty")
 	ErrNameTooLong = errors.New("name must be at most 100 characters")
+	ErrEmptyCode   = errors.New("code cannot be empty")
 	ErrCodeTooLong = errors.New("code must be at most 20 characters")
 	ErrDescTooLong = errors.New("description must be at most 255 characters")
 )
@@ -35,6 +36,9 @@ func (e *EnvironmentType) Validate() error {
 	}
 
 	code := strings.TrimSpace(e.Code)
+	if code == "" {
+		return ErrEmptyCode
+	}
 	if utf8.RuneCountInString(code) > 20 {
 		return ErrCodeTooLong
 	}

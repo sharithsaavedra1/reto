@@ -66,7 +66,7 @@ func (u *environmentTypeUseCase) Create(ctx context.Context, cmd port.CreateEnvi
 	}
 
 	if err := entity.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	// Verify name uniqueness
@@ -78,15 +78,13 @@ func (u *environmentTypeUseCase) Create(ctx context.Context, cmd port.CreateEnvi
 		return nil, ErrConflictName
 	}
 
-	// Verify code uniqueness if code is supplied
-	if entity.Code != "" {
-		existingByCode, err := u.repo.FindByCode(ctx, entity.Code)
-		if err != nil {
-			return nil, err
-		}
-		if existingByCode != nil {
-			return nil, ErrConflictCode
-		}
+	// Verify code uniqueness (mandatory)
+	existingByCode, err := u.repo.FindByCode(ctx, entity.Code)
+	if err != nil {
+		return nil, err
+	}
+	if existingByCode != nil {
+		return nil, ErrConflictCode
 	}
 
 	if err := u.repo.Save(ctx, entity); err != nil {

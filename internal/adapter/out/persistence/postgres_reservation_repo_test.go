@@ -50,6 +50,9 @@ func TestPostgresReservationRepository_HU007_RealExclusionConstraintAndSQLStateM
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
 		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 		CREATE TABLE IF NOT EXISTS training_environment.reservation (
 			id UUID PRIMARY KEY,
 			environment_id UUID NOT NULL,
@@ -58,10 +61,11 @@ func TestPostgresReservationRepository_HU007_RealExclusionConstraintAndSQLStateM
 			start_time TIME NOT NULL,
 			end_time TIME NOT NULL,
 			status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
-			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			reason VARCHAR(255),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS reason VARCHAR(255);
 		ALTER TABLE training_environment.reservation ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 		DO $$
@@ -73,6 +77,11 @@ func TestPostgresReservationRepository_HU007_RealExclusionConstraintAndSQLStateM
 			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_reservation_status') THEN
 				ALTER TABLE training_environment.reservation
 					ADD CONSTRAINT chk_reservation_status CHECK (status IN ('PENDING','CONFIRMED','CANCELLED'));
+			END IF;
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_environment_environment_type') THEN
+				ALTER TABLE training_environment.environment
+					ADD CONSTRAINT fk_environment_environment_type FOREIGN KEY (environment_type_id)
+					REFERENCES training_environment.environment_type (id);
 			END IF;
 			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_reservation_environment') THEN
 				ALTER TABLE training_environment.reservation

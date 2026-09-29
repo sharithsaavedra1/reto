@@ -216,6 +216,21 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 		t.Fatalf("expected 422 Unprocessable Entity, got: %d (%s)", recInvalid.Code, recInvalid.Body.String())
 	}
 
+	// Invalid payload: empty code (422 Unprocessable Entity)
+	emptyCodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
+		Code: "   ",
+		Name: "Nombre Valido",
+	})
+	reqEmptyCode := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(emptyCodeBody))
+	reqEmptyCode.Header.Set("Authorization", "Bearer "+token)
+	reqEmptyCode.Header.Set("Content-Type", "application/json")
+	recEmptyCode := httptest.NewRecorder()
+	mux.ServeHTTP(recEmptyCode, reqEmptyCode)
+
+	if recEmptyCode.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 Unprocessable Entity for empty code, got: %d (%s)", recEmptyCode.Code, recEmptyCode.Body.String())
+	}
+
 	// Invalid payload: code exceeds 20 chars (422 Unprocessable Entity)
 	tooLongCodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
 		Code: strings.Repeat("X", 21),
@@ -229,6 +244,21 @@ func TestHandler_E2_CreateEnvironmentType(t *testing.T) {
 
 	if recTooLong.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("expected 422 for code > 20, got: %d (%s)", recTooLong.Code, recTooLong.Body.String())
+	}
+
+	// Valid payload: code exactly 20 chars (201 Created)
+	valid20CodeBody, _ := json.Marshal(dto.CreateEnvironmentTypeRequest{
+		Code: strings.Repeat("Y", 20),
+		Name: "Tipo Código 20",
+	})
+	reqValid20 := httptest.NewRequest(http.MethodPost, "/environment-types", bytes.NewReader(valid20CodeBody))
+	reqValid20.Header.Set("Authorization", "Bearer "+token)
+	reqValid20.Header.Set("Content-Type", "application/json")
+	recValid20 := httptest.NewRecorder()
+	mux.ServeHTTP(recValid20, reqValid20)
+
+	if recValid20.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created for 20 char code, got: %d (%s)", recValid20.Code, recValid20.Body.String())
 	}
 }
 

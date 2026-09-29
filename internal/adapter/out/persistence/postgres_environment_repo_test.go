@@ -108,6 +108,22 @@ func TestPostgresEnvironmentRepository_Integration(t *testing.T) {
 			CONSTRAINT chk_environment_capacity CHECK (capacity > 0),
 			CONSTRAINT fk_environment_environment_type FOREIGN KEY (environment_type_id) REFERENCES training_environment.environment_type(id)
 		);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS location VARCHAR(200);
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		ALTER TABLE training_environment.environment ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_environment_capacity') THEN
+				ALTER TABLE training_environment.environment
+					ADD CONSTRAINT chk_environment_capacity CHECK (capacity > 0);
+			END IF;
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_environment_environment_type') THEN
+				ALTER TABLE training_environment.environment
+					ADD CONSTRAINT fk_environment_environment_type
+					FOREIGN KEY (environment_type_id) REFERENCES training_environment.environment_type(id);
+			END IF;
+		END $$;
 	`)
 	if err != nil {
 		skipOrFailPostgres(t, "unable to prepare PostgreSQL integration tables: %v", err)
