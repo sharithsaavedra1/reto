@@ -355,6 +355,24 @@ func TestPostgresEnvironmentRepository_HU004_UpdateAndLogicalDeactivate(t *testi
 		t.Fatalf("unexpected updated HU004 environment: %+v", found)
 	}
 
+	for _, length := range []int{150, 151, 199, 200} {
+		boundaryLoc := strings.Repeat("U", length)
+		entity.Location = &boundaryLoc
+		if err := repo.Update(ctx, entity); err != nil {
+			t.Fatalf("failed to update environment with %d rune location: %v", length, err)
+		}
+		foundBoundary, err := repo.FindByID(ctx, envID)
+		if err != nil || foundBoundary == nil || foundBoundary.Location == nil || *foundBoundary.Location != boundaryLoc {
+			t.Fatalf("unexpected environment location for %d runes: got=%v want=%d runes", length, foundBoundary, length)
+		}
+	}
+
+	tooLongLoc := strings.Repeat("X", 201)
+	entity.Location = &tooLongLoc
+	if err := repo.Update(ctx, entity); err != model.ErrLocationTooLong {
+		t.Fatalf("expected ErrLocationTooLong on Update with > 200 characters, got: %v", err)
+	}
+
 	if err := repo.Deactivate(ctx, envID); err != nil {
 		t.Fatalf("failed to logically deactivate HU004 environment: %v", err)
 	}
