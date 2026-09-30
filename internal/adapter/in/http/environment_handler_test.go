@@ -320,13 +320,32 @@ func TestEnvironmentHandler_HU004_UpdateReactivateAndLogicalDeactivate(t *testin
 	for _, length := range []int{150, 151, 199, 200} {
 		locationUpdate := request(http.MethodPatch, "/training-environments/"+environmentID, map[string]interface{}{"location": strings.Repeat("L", length)})
 		if locationUpdate.Code != http.StatusOK {
-			t.Fatalf("expected 200 for a %d-character location, got: %d (%s)", length, locationUpdate.Code, locationUpdate.Body.String())
+			t.Fatalf("expected 200 for a %d-character location via PATCH, got: %d (%s)", length, locationUpdate.Code, locationUpdate.Body.String())
+		}
+		locationPut := request(http.MethodPut, "/training-environments/"+environmentID, map[string]interface{}{
+			"environment_type_id": "347d47f9-1ba5-4b9c-89b7-892112a23d90",
+			"name":                "Aula PUT con location",
+			"capacity":            30,
+			"location":            strings.Repeat("L", length),
+		})
+		if locationPut.Code != http.StatusOK {
+			t.Fatalf("expected 200 for a %d-character location via PUT, got: %d (%s)", length, locationPut.Code, locationPut.Body.String())
 		}
 	}
 
 	location201 := request(http.MethodPatch, "/training-environments/"+environmentID, map[string]interface{}{"location": strings.Repeat("L", 201)})
 	if location201.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("expected 422 for a 201-character location, got: %d (%s)", location201.Code, location201.Body.String())
+		t.Fatalf("expected 422 for a 201-character location via PATCH, got: %d (%s)", location201.Code, location201.Body.String())
+	}
+
+	location201Put := request(http.MethodPut, "/training-environments/"+environmentID, map[string]interface{}{
+		"environment_type_id": "347d47f9-1ba5-4b9c-89b7-892112a23d90",
+		"name":                "Aula PUT con location excedida",
+		"capacity":            30,
+		"location":            strings.Repeat("L", 201),
+	})
+	if location201Put.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 for a 201-character location via PUT, got: %d (%s)", location201Put.Code, location201Put.Body.String())
 	}
 
 	missing := request(http.MethodPatch, "/training-environments/00000000-0000-0000-0000-000000000000", map[string]interface{}{"name": "No existe"})
