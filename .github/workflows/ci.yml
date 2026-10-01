@@ -2,9 +2,9 @@ name: CI - Build and Test
 
 on:
   push:
-    branches: [develop, main, hu-15-dev]
+    branches: [develop, main, hu-15-dev, hu-17-dev]
   pull_request:
-    branches: [develop, qa, staging, main, hu-15-dev]
+    branches: [develop, qa, staging, main, hu-15-dev, hu-17-dev]
 
 permissions:
   contents: read
