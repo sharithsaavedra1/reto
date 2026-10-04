@@ -470,6 +470,17 @@ func TestEnvironmentHandler_HU003_ListPaginationAndFilters(t *testing.T) {
 		t.Fatalf("expected ascending name order, got: %+v", page.Data[0])
 	}
 
+	rec = request("/training-environments?page=2&page_size=1&sort=name:asc")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for second page, got: %d (%s)", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("failed to decode second page: %v", err)
+	}
+	if len(page.Data) != 1 || page.Pagination.Page != 2 || page.Pagination.TotalItems != 2 || page.Data[0].Name != "Laboratorio de Software 302" {
+		t.Fatalf("unexpected second page or sort order: %+v", page)
+	}
+
 	rec = request("/training-environments?environment_type_id=347d47f9-1ba5-4b9c-89b7-892112a23d90&training_center_id=c1d2e3f4-a5b6-7890-1234-56789abcdef0&is_active=true")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 for combined filters, got: %d (%s)", rec.Code, rec.Body.String())
@@ -479,6 +490,46 @@ func TestEnvironmentHandler_HU003_ListPaginationAndFilters(t *testing.T) {
 	}
 	if len(page.Data) != 1 || page.Data[0].EnvironmentTypeID != "347d47f9-1ba5-4b9c-89b7-892112a23d90" {
 		t.Fatalf("unexpected AND filter response: %+v", page.Data)
+	}
+
+	for _, testCase := range []struct {
+		name          string
+		query         string
+		wantItems     int
+		wantTotalItem int
+	}{
+		{
+			name:          "center and active",
+			query:         "training_center_id=c1d2e3f4-a5b6-7890-1234-56789abcdef0&is_active=true",
+			wantItems:     2,
+			wantTotalItem: 2,
+		},
+		{
+			name:          "type and active",
+			query:         "environment_type_id=347d47f9-1ba5-4b9c-89b7-892112a23d90&is_active=true",
+			wantItems:     1,
+			wantTotalItem: 1,
+		},
+		{
+			name:          "center and inactive",
+			query:         "training_center_id=c1d2e3f4-a5b6-7890-1234-56789abcdef0&is_active=false",
+			wantItems:     0,
+			wantTotalItem: 0,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			filtered := request("/training-environments?" + testCase.query)
+			if filtered.Code != http.StatusOK {
+				t.Fatalf("expected 200 for %s, got: %d (%s)", testCase.name, filtered.Code, filtered.Body.String())
+			}
+			var filteredPage dto.EnvironmentListResponse
+			if err := json.Unmarshal(filtered.Body.Bytes(), &filteredPage); err != nil {
+				t.Fatalf("failed to decode %s response: %v", testCase.name, err)
+			}
+			if len(filteredPage.Data) != testCase.wantItems || filteredPage.Pagination.TotalItems != testCase.wantTotalItem {
+				t.Fatalf("unexpected %s results: %+v", testCase.name, filteredPage)
+			}
+		})
 	}
 
 	for _, invalid := range []string{"/training-environments?page_size=0", "/training-environments?page_size=101"} {
