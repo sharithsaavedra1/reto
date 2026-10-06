@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 
 	"github.com/code-sena/design-software-training-environment-service/internal/application/port"
 	"github.com/code-sena/design-software-training-environment-service/internal/application/usecase"
@@ -34,6 +34,8 @@ type maintenanceStartedPayload struct {
 	MaintenanceID string    `json:"maintenance_id"`
 	StartDate     string    `json:"start_date"`
 	EndDate       string    `json:"end_date"`
+	StartTime     string    `json:"start_time"`
+	EndTime       string    `json:"end_time"`
 	Description   string    `json:"description"`
 	CreatedBy     string    `json:"created_by"`
 	CreatedAt     time.Time `json:"created_at"`
@@ -51,18 +53,19 @@ func (r *PostgresMaintenanceRepository) List(ctx context.Context, query port.Mai
 	args := []interface{}{query.EnvironmentID}
 	if query.From != nil {
 		args = append(args, dateString(*query.From))
-		where = append(where, fmt.Sprintf("end_date > $%d", len(args)))
+		where = append(where, fmt.Sprintf("(end_date + end_time) > $%d::date", len(args)))
 	}
 	if query.To != nil {
 		args = append(args, dateString(*query.To))
-		where = append(where, fmt.Sprintf("start_date < $%d", len(args)))
+		where = append(where, fmt.Sprintf("(start_date + start_time) < $%d::date", len(args)))
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, environment_id, start_date, end_date, reason, created_by, created_at
+		SELECT id, environment_id, start_date, end_date, start_time::text, end_time::text,
+		       reason, created_by, created_at
 		FROM training_environment.maintenance
 		WHERE `+joinSQL(where, " AND ")+`
-		ORDER BY start_date, id`, args...)
+		ORDER BY start_date, start_time, id`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +90,8 @@ func (r *PostgresMaintenanceRepository) Get(ctx context.Context, environmentID, 
 		return nil, err
 	}
 	item, err := scanMaintenance(r.db.QueryRowContext(ctx, `
-		SELECT id, environment_id, start_date, end_date, reason, created_by, created_at
+		SELECT id, environment_id, start_date, end_date, start_time::text, end_time::text,
+		       reason, created_by, created_at
 		FROM training_environment.maintenance
 		WHERE id = $1 AND environment_id = $2`, maintenanceID, environmentID).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -111,10 +115,10 @@ func (r *PostgresMaintenanceRepository) Create(ctx context.Context, maintenance 
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO training_environment.maintenance
-		(id, environment_id, start_date, end_date, reason, created_by, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		(id, environment_id, start_date, end_date, start_time, end_time, reason, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		maintenance.ID, maintenance.EnvironmentID, dateString(maintenance.StartDate), dateString(maintenance.EndDate),
-		maintenance.Reason, maintenance.CreatedBy, maintenance.CreatedAt); err != nil {
+		maintenance.StartTime, maintenance.EndTime, maintenance.Reason, maintenance.CreatedBy, maintenance.CreatedAt); err != nil {
 		return mapMaintenancePersistenceError(err)
 	}
 	if err := insertMaintenanceEvent(ctx, tx, maintenance); err != nil {
@@ -152,7 +156,18 @@ func lockMaintenanceEnvironment(ctx context.Context, tx *sql.Tx, environmentID s
 func scanMaintenance(scan func(...interface{}) error) (*model.Maintenance, error) {
 	var item model.Maintenance
 	var reason sql.NullString
-	if err := scan(&item.ID, &item.EnvironmentID, &item.StartDate, &item.EndDate, &reason, &item.CreatedBy, &item.CreatedAt); err != nil {
+	var startTimeRaw, endTimeRaw string
+	if err := scan(&item.ID, &item.EnvironmentID, &item.StartDate, &item.EndDate,
+		&startTimeRaw, &endTimeRaw, &reason, &item.CreatedBy, &item.CreatedAt); err != nil {
+		return nil, err
+	}
+	var err error
+	item.StartTime, err = model.NormalizeMaintenanceClock(startTimeRaw)
+	if err != nil {
+		return nil, err
+	}
+	item.EndTime, err = model.NormalizeMaintenanceClock(endTimeRaw)
+	if err != nil {
 		return nil, err
 	}
 	if reason.Valid {
@@ -169,6 +184,7 @@ func insertMaintenanceEvent(ctx context.Context, tx *sql.Tx, maintenance *model.
 		Payload: maintenanceStartedPayload{
 			EnvironmentID: maintenance.EnvironmentID, MaintenanceID: maintenance.ID,
 			StartDate: dateString(maintenance.StartDate), EndDate: dateString(maintenance.EndDate),
+			StartTime: maintenance.StartTime, EndTime: maintenance.EndTime,
 			Description: valueOrEmpty(maintenance.Reason), CreatedBy: maintenance.CreatedBy, CreatedAt: maintenance.CreatedAt,
 		},
 	}
@@ -183,11 +199,23 @@ func insertMaintenanceEvent(ctx context.Context, tx *sql.Tx, maintenance *model.
 }
 
 func mapMaintenancePersistenceError(err error) error {
+	var postgresErr *pq.Error
+	if errors.As(err, &postgresErr) {
+		switch string(postgresErr.Code) {
+		case "23503":
+			return usecase.ErrEnvironmentNotFound
+		case "23514":
+			return usecase.ErrMaintenanceValidation
+		}
+	}
+
 	message := err.Error()
 	if containsPostgresCode(message, "23503") || containsPostgresText(message, "fk_maintenance_environment") {
 		return usecase.ErrEnvironmentNotFound
 	}
-	if containsPostgresCode(message, "23514") || containsPostgresText(message, "chk_maintenance_end_date") {
+	if containsPostgresCode(message, "23514") || containsPostgresText(message, "chk_maintenance_end_date") ||
+		containsPostgresText(message, "chk_maintenance_date_range") ||
+		containsPostgresText(message, "chk_maintenance_same_day_time_range") {
 		return usecase.ErrMaintenanceValidation
 	}
 	return err

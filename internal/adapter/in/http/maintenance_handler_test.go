@@ -52,7 +52,7 @@ func TestMaintenanceHandler_HU006_ListCreateDetailAndFilters(t *testing.T) {
 		t.Fatalf("expected 200 for an empty maintenance list, got %d (%s)", initial.Code, initial.Body.String())
 	}
 	first := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, dto.MaintenanceCreateRequest{
-		StartDate: "2026-06-01", EndDate: "2026-06-10", Reason: stringPointer("Electrical inspection"),
+		StartDate: "2026-06-01", EndDate: "2026-06-10", StartTime: "00:00", EndTime: "00:00", Reason: stringPointer("Electrical inspection"),
 	})
 	if first.Code != http.StatusCreated {
 		t.Fatalf("expected 201 for valid maintenance, got %d (%s)", first.Code, first.Body.String())
@@ -61,12 +61,12 @@ func TestMaintenanceHandler_HU006_ListCreateDetailAndFilters(t *testing.T) {
 	if err := json.Unmarshal(first.Body.Bytes(), &created); err != nil {
 		t.Fatalf("failed to decode created maintenance: %v", err)
 	}
-	if created.EnvironmentID != environmentID || created.StartDate != "2026-06-01" || created.EndDate != "2026-06-10" || created.CreatedBy != createdBy || created.Reason == nil || *created.Reason != "Electrical inspection" {
+	if created.EnvironmentID != environmentID || created.StartDate != "2026-06-01" || created.EndDate != "2026-06-10" || created.StartTime != "00:00:00" || created.EndTime != "00:00:00" || created.CreatedBy != createdBy || created.Reason == nil || *created.Reason != "Electrical inspection" {
 		t.Fatalf("unexpected created maintenance response: %+v", created)
 	}
 
 	second := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, dto.MaintenanceCreateRequest{
-		StartDate: "2026-06-20", EndDate: "2026-06-30",
+		StartDate: "2026-06-20", EndDate: "2026-06-30", StartTime: "22:00", EndTime: "06:00",
 	})
 	if second.Code != http.StatusCreated {
 		t.Fatalf("expected 201 when reason is omitted, got %d (%s)", second.Code, second.Body.String())
@@ -144,22 +144,23 @@ func TestMaintenanceHandler_HU006_ValidationSecurityAndAppendOnly(t *testing.T) 
 	}
 
 	invalidPayloads := []string{
-		`{"start_date":"2026-06-10","end_date":"2026-06-01"}`,
-		`{"start_date":"2026-06-10","end_date":"2026-06-10"}`,
-		`{"start_date":"not-a-date","end_date":"2026-06-10"}`,
-		`{"start_date":"2026-06-01","end_date":"2026-06-10","reason":"` + strings.Repeat("r", 256) + `"}`,
+		`{"start_date":"2026-06-10","end_date":"2026-06-01","start_time":"08:00","end_time":"09:00"}`,
+		`{"start_date":"2026-06-10","end_date":"2026-06-10","start_time":"10:00","end_time":"10:00"}`,
+		`{"start_date":"not-a-date","end_date":"2026-06-10","start_time":"08:00","end_time":"09:00"}`,
+		`{"start_date":"2026-06-01","end_date":"2026-06-10","start_time":"25:00","end_time":"09:00"}`,
+		`{"start_date":"2026-06-01","end_date":"2026-06-10","start_time":"08:00","end_time":"09:00","reason":"` + strings.Repeat("r", 256) + `"}`,
 	}
-	for index, payload := range invalidPayloads[:3] {
+	for index, payload := range invalidPayloads[:4] {
 		if rec := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, payload); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("invalid payload %d: expected 422, got %d (%s)", index, rec.Code, rec.Body.String())
 		}
 	}
-	valid := `{"start_date":"2026-06-01","end_date":"2026-06-10"}`
+	valid := `{"start_date":"2026-06-01","end_date":"2026-06-10","start_time":"22:00","end_time":"06:00"}`
 	if rec := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, valid); rec.Code != http.StatusCreated {
 		t.Fatalf("expected valid payload to return 201, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	beforeInvalidReason := len(maintenanceRepo.OutboxEvents())
-	if rec := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, invalidPayloads[3]); rec.Code != http.StatusUnprocessableEntity {
+	if rec := request(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", manageToken, invalidPayloads[4]); rec.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("reason over 255 characters: expected 422, got %d (%s)", rec.Code, rec.Body.String())
 	}
 	if after := len(maintenanceRepo.OutboxEvents()); after != beforeInvalidReason {
@@ -186,5 +187,56 @@ func TestMaintenanceHandler_HU006_ValidationSecurityAndAppendOnly(t *testing.T) 
 	}
 	if rec := request(http.MethodPut, "/training-environments/"+environmentID+"/maintenance/00000000-0000-0000-0000-000000000001", manageToken, valid); rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("append-only maintenance must not support PUT, got %d", rec.Code)
+	}
+}
+
+func TestMaintenanceHandler_HU018_TemporalValidationReturns422(t *testing.T) {
+	mux, maintenanceRepo := setupMaintenanceTestServer()
+	environmentID := "78901234-5678-9012-3456-789012345678"
+	createdBy := "42c78701-2b34-4a6f-b034-3f7a3eca57d8"
+	manageToken := createTestTokenWithSubject([]string{"ENV_MAINTENANCE_MANAGE"}, createdBy, testJWTSecret, false)
+
+	post := func(payload string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/training-environments/"+environmentID+"/maintenance", bytes.NewBufferString(payload))
+		req.Header.Set("Authorization", "Bearer "+manageToken)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	invalid := []string{
+		`{"start_date":"2026-10-06","end_date":"2026-10-05","start_time":"08:00","end_time":"09:00"}`,
+		`{"start_date":"2026-10-05","end_date":"2026-10-05","start_time":"10:00","end_time":"10:00"}`,
+		`{"start_date":"2026-10-05","end_date":"2026-10-05","start_time":"10:00","end_time":"09:00"}`,
+	}
+	for index, payload := range invalid {
+		rec := post(payload)
+		if rec.Code != http.StatusUnprocessableEntity {
+			t.Fatalf("invalid temporal payload %d: expected 422, got %d (%s)", index, rec.Code, rec.Body.String())
+		}
+	}
+	if events := maintenanceRepo.OutboxEvents(); len(events) != 0 {
+		t.Fatalf("invalid temporal data must not create events: %+v", events)
+	}
+
+	sameDay := post(`{"start_date":"2026-10-05","end_date":"2026-10-05","start_time":"08:00","end_time":"10:30"}`)
+	if sameDay.Code != http.StatusCreated {
+		t.Fatalf("valid same-day maintenance: expected 201, got %d (%s)", sameDay.Code, sameDay.Body.String())
+	}
+	var sameDayResponse dto.MaintenanceResponse
+	if err := json.Unmarshal(sameDay.Body.Bytes(), &sameDayResponse); err != nil {
+		t.Fatalf("decode same-day response: %v", err)
+	}
+	if sameDayResponse.StartTime != "08:00:00" || sameDayResponse.EndTime != "10:30:00" {
+		t.Fatalf("same-day response did not preserve normalized times: %+v", sameDayResponse)
+	}
+
+	multiDay := post(`{"start_date":"2026-10-05","end_date":"2026-10-06","start_time":"22:00","end_time":"06:00"}`)
+	if multiDay.Code != http.StatusCreated {
+		t.Fatalf("multi-day maintenance with earlier end clock: expected 201, got %d (%s)", multiDay.Code, multiDay.Body.String())
+	}
+	if events := maintenanceRepo.OutboxEvents(); len(events) != 2 {
+		t.Fatalf("expected two events for the valid maintenances, got %+v", events)
 	}
 }

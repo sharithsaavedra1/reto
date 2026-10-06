@@ -47,6 +47,8 @@ func (u *maintenanceUseCase) Create(ctx context.Context, command port.Maintenanc
 		EnvironmentID: command.EnvironmentID,
 		StartDate:     command.StartDate,
 		EndDate:       command.EndDate,
+		StartTime:     command.StartTime,
+		EndTime:       command.EndTime,
 		Reason:        command.Reason,
 		CreatedBy:     command.CreatedBy,
 		CreatedAt:     time.Now().UTC(),
@@ -56,6 +58,8 @@ func (u *maintenanceUseCase) Create(ctx context.Context, command port.Maintenanc
 	}
 	maintenance.StartDate = dateOnly(maintenance.StartDate)
 	maintenance.EndDate = dateOnly(maintenance.EndDate)
+	maintenance.StartTime, _ = model.NormalizeMaintenanceClock(maintenance.StartTime)
+	maintenance.EndTime, _ = model.NormalizeMaintenanceClock(maintenance.EndTime)
 	if err := u.repo.Create(ctx, maintenance); err != nil {
 		return nil, err
 	}

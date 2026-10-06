@@ -71,7 +71,7 @@ func (h *MaintenanceHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	command, err := request.Command(environmentID, createdBy)
 	if err != nil {
-		writeMaintenanceValidationError(w, r, "start_date and end_date must use ISO date format (YYYY-MM-DD)")
+		writeMaintenanceValidationError(w, r, "start_date/end_date must use YYYY-MM-DD and start_time/end_time must use HH:MM or HH:MM:SS")
 		return
 	}
 	created, err := h.useCase.Create(r.Context(), command)
@@ -101,7 +101,7 @@ func (h *MaintenanceHandler) writeError(w http.ResponseWriter, r *http.Request, 
 	switch {
 	case errors.Is(err, usecase.ErrEnvironmentNotFound), errors.Is(err, usecase.ErrMaintenanceNotFound):
 		response.WriteError(w, r, http.StatusNotFound, "NOT_FOUND", "maintenance period or training environment not found", nil)
-	case errors.Is(err, usecase.ErrMaintenanceValidation), errors.Is(err, model.ErrInvalidMaintenanceDateRange), errors.Is(err, model.ErrMaintenanceReasonTooLong):
+	case errors.Is(err, usecase.ErrMaintenanceValidation), errors.Is(err, model.ErrInvalidMaintenanceDateRange), errors.Is(err, model.ErrInvalidMaintenanceStartTime), errors.Is(err, model.ErrInvalidMaintenanceEndTime), errors.Is(err, model.ErrInvalidMaintenanceTimeRange), errors.Is(err, model.ErrMaintenanceReasonTooLong):
 		response.WriteError(w, r, http.StatusUnprocessableEntity, "UNPROCESSABLE_ENTITY", err.Error(), nil)
 	case errors.Is(err, usecase.ErrMaintenanceQuery):
 		writeMaintenanceQueryError(w, r, err.Error())
