@@ -46,10 +46,12 @@ func (r *MemoryMaintenanceRepository) List(ctx context.Context, query port.Maint
 	r.mu.RUnlock()
 
 	sort.SliceStable(result, func(i, j int) bool {
-		if result[i].StartDate.Equal(result[j].StartDate) {
-			return result[i].ID < result[j].ID
+		startI, _, errI := model.MaintenanceBounds(result[i])
+		startJ, _, errJ := model.MaintenanceBounds(result[j])
+		if errI == nil && errJ == nil && !startI.Equal(startJ) {
+			return startI.Before(startJ)
 		}
-		return result[i].StartDate.Before(result[j].StartDate)
+		return result[i].ID < result[j].ID
 	})
 	return result, nil
 }
@@ -81,6 +83,8 @@ func (r *MemoryMaintenanceRepository) Create(ctx context.Context, maintenance *m
 			"maintenance_id": maintenance.ID,
 			"start_date":     maintenance.StartDate.Format("2006-01-02"),
 			"end_date":       maintenance.EndDate.Format("2006-01-02"),
+			"start_time":     maintenance.StartTime,
+			"end_time":       maintenance.EndTime,
 			"description":    valueOrEmpty(maintenance.Reason),
 			"created_by":     maintenance.CreatedBy,
 			"created_at":     maintenance.CreatedAt,
@@ -107,13 +111,22 @@ func (r *MemoryMaintenanceRepository) ensureEnvironment(ctx context.Context, env
 }
 
 func maintenanceOverlaps(item model.Maintenance, from, to *time.Time) bool {
-	if from != nil && !item.EndDate.After(*from) {
+	startAt, endAt, err := model.MaintenanceBounds(item)
+	if err != nil {
 		return false
 	}
-	if to != nil && !item.StartDate.Before(*to) {
+	if from != nil && !endAt.After(maintenanceDateBoundary(*from)) {
+		return false
+	}
+	if to != nil && !startAt.Before(maintenanceDateBoundary(*to)) {
 		return false
 	}
 	return true
+}
+
+func maintenanceDateBoundary(value time.Time) time.Time {
+	value = value.UTC()
+	return time.Date(value.Year(), value.Month(), value.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func valueOrEmpty(value *string) string {

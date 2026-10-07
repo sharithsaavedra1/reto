@@ -29,6 +29,7 @@ func TestMemoryEnvironmentUtilizationRepository_CalculatesPhysicalUtilization(t 
 	if err := maintenanceRepo.Create(ctx, &model.Maintenance{
 		ID: "22222222-2222-4222-8222-222222222222", EnvironmentID: environmentID,
 		StartDate: time.Date(2026, 9, 14, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC),
+		StartTime: "00:00:00", EndTime: "00:00:00",
 		CreatedBy: "33333333-3333-4333-8333-333333333333", CreatedAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)

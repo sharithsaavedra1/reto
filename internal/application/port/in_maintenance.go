@@ -17,6 +17,8 @@ type MaintenanceCreateCommand struct {
 	EnvironmentID string
 	StartDate     time.Time
 	EndDate       time.Time
+	StartTime     string
+	EndTime       string
 	Reason        *string
 	CreatedBy     string
 }
