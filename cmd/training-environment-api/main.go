@@ -14,6 +14,7 @@ import (
 	"github.com/code-sena/design-software-training-environment-service/internal/adapter/out/persistence"
 	"github.com/code-sena/design-software-training-environment-service/internal/application/port"
 	"github.com/code-sena/design-software-training-environment-service/internal/application/usecase"
+	"github.com/code-sena/design-software-training-environment-service/internal/observability"
 )
 
 func main() {
@@ -69,8 +70,18 @@ func main() {
 	}
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
 
-	// 4. HTTP Router and Handlers
+	// 4. Observability suite initialization (OpenTelemetry W3C Tracing, RED Metrics, Structured Logging)
+	obs := observability.New(observability.Config{
+		ServiceName:    "training-environment-service",
+		ServiceVersion: "1.0.0",
+		Environment:    appEnv,
+	})
+
+	// 5. HTTP Router and Handlers
 	mux := http.NewServeMux()
+
+	// Metrics endpoint (Prometheus text exposition format)
+	mux.HandleFunc("GET /metrics", obs.MetricsHandler())
 
 	// Health check endpoint
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -107,8 +118,11 @@ func main() {
 	utilizationHandler.RegisterRoutes(mux, authMiddleware)
 
 	addr := ":" + env("PORT", "8080")
-	log.Printf("training-environment-service API listening on %s (env: %s)", addr, appEnv)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Printf("training-environment-service API listening on %s (env: %s) with OpenTelemetry W3C Tracing and RED Metrics (/metrics)", addr, appEnv)
+
+	// Wrap entire HTTP router with Observability Middleware
+	rootHandler := obs.Middleware(mux)
+	log.Fatal(http.ListenAndServe(addr, rootHandler))
 }
 
 func isNonLocalEnv(e string) bool {

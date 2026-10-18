@@ -1,0 +1,38 @@
+# Reglas de alerta oficiales para el microservicio Training Environment
+# Rúbrica SENA ADSO - Reto R3: Alerta para tasa de error mayor al 5%
+
+groups:
+  - name: training-environment-sla-alerts
+    rules:
+      - alert: TrainingEnvironmentHighErrorRate
+        expr: (sum(rate(http_requests_errors_total[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 5
+        for: 1m
+        labels:
+          severity: critical
+          service: training-environment-service
+          team: adso-sena
+          challenge: R3-observability
+        annotations:
+          summary: "Tasa de error HTTP crítica (> 5%) en training-environment-service"
+          description: "La tasa de errores HTTP (4xx y 5xx) es del {{ $value | printf \"%.2f\" }}% durante los últimos 5 minutos, superando el umbral de SLA del 5%."
+          runbook_url: "https://github.com/code-sena/design-software-training-environment-service/blob/develop/docs/runbook.md"
+
+      - alert: TrainingEnvironmentHighP95Latency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          service: training-environment-service
+        annotations:
+          summary: "Latencia P95 degradada (> 500ms) en training-environment-service"
+          description: "El percentil 95 de latencia es de {{ $value | printf \"%.3f\" }}s, superando el objetivo de 500ms."
+
+      - alert: TrainingEnvironmentServiceDown
+        expr: up{job="training-environment-service"} == 0
+        for: 30s
+        labels:
+          severity: page
+          service: training-environment-service
+        annotations:
+          summary: "Instancia de training-environment-service inaccesible"
+          description: "El scrape de métricas Prometheus hacia training-environment-service ha fallado por más de 30 segundos."
