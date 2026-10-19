@@ -9,7 +9,7 @@ scrape_configs:
   - job_name: "training-environment-service"
     metrics_path: "/metrics"
     static_configs:
-      - targets: ["host.docker.internal:8080", "training-environment-service:8080"]
+      - targets: ["host.docker.internal:8085", "host.docker.internal:8080", "training-environment-service:8080"]
         labels:
           environment: "local-dev"
           service: "training-environment-service"

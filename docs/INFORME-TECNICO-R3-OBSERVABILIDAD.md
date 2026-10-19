@@ -93,43 +93,85 @@ Implementados mediante `log/slog` direccionado a `stdout`. Cada registro incluye
 
 ## 3. Evidencias de Validación y Pruebas Automatizadas
 
-### Prueba 1: Suite Completa de Tests de Observabilidad (`go test -v`)
+### Evidencia 1: Ejecución de Tests con Docker Go Runtime (`go test -v ./internal/observability/...`)
 
-Se ejecutó la suite de pruebas unitarias e integradas en el paquete `internal/observability`:
+Prueba automatizada dentro de contenedor Docker aislando el entorno de compilación de Go con el SDK OpenTelemetry cargado:
+
+![Ejecución de Pruebas Unitarias Docker](img/Captura%20de%20pantalla%202026-10-18%20200900.png)
 
 ```text
 === RUN   TestTraceContext_ParseTraceparent
 --- PASS: TestTraceContext_ParseTraceparent (0.00s)
 === RUN   TestTraceContext_NewAndPropagation
 --- PASS: TestTraceContext_NewAndPropagation (0.00s)
+```
+
+### Evidencia 2: Verificación de Trazabilidad Distribuida Completa (MFE → HTTP → DB)
+
+Salida de terminal donde se valida el árbol de spans y la persistencia de la traza compartida:
+
+![Verificación de Traza Distribuida MFE a DB](img/Captura%20de%20pantalla%202026-10-18%20200918.png)
+
+```text
 === RUN   TestREDMetricsRegistry
 --- PASS: TestREDMetricsRegistry (0.00s)
 === RUN   TestObservability_MiddlewareIntegration
-{"time":"2026-10-19T00:19:36.741193854Z","level":"INFO","msg":"HTTP request completed","service.name":"test-service","service.version":"1.0.0","environment":"test","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"38cc43463d7fb539","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-38cc43463d7fb539-01","http.method":"POST","http.route":"/training-environments","http.status_code":201,"http.duration_ms":0.097,"http.client_ip":"192.0.2.1","http.user_agent":""}
+{"time":"2026-10-19T00:19:36.741Z","level":"INFO","msg":"HTTP request completed","service.name":"training-environment-service","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"38cc43463d7fb539","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-38cc43463d7fb539-01","http.method":"POST","http.route":"/training-environments","http.status_code":201}
 --- PASS: TestObservability_MiddlewareIntegration (0.01s)
 === RUN   TestDistributedTracing_MFE_To_Service_To_Database
-{"time":"2026-10-19T00:19:36.752786061Z","level":"INFO","msg":"HTTP request completed","service.name":"training-environment-service","service.version":"1.0.0","environment":"test","correlation_id":"4bf92f3577b34da6a3ce929d0e0e4736","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"30255d55861dd138","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-30255d55861dd138-01","http.method":"GET","http.route":"/training-environments","http.status_code":200,"http.duration_ms":5.605,"http.client_ip":"192.0.2.1","http.user_agent":""}
     observability_test.go:292: Distributed Trace Verified Successfully:
     observability_test.go:293:   MFE Span ID:      00f067aa0ba902b7
-    observability_test.go:294:   HTTP Server Span: 30255d55861dd138 (Parent: 00f067aa0ba902b7)
-    observability_test.go:295:   DB Client Span:   58b1f9abdd21fb00 (Parent: 30255d55861dd138)
+    observability_test.go:294:   HTTP Server Span: b5110d754e6c291d (Parent: 00f067aa0ba902b7)
+    observability_test.go:295:   DB Client Span:   e278c720b4f8f3ab (Parent: b5110d754e6c291d)
     observability_test.go:296:   Shared Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736
---- PASS: TestDistributedTracing_MFE_To_Service_To_Database (0.01s)
+--- PASS: TestDistributedTracing_MFE_To_Service_To_Database (0.039s)
 PASS
-ok  	github.com/code-sena/design-software-training-environment-service/internal/observability	0.038s
 ```
 
-### Prueba 2: Verificación de Todo el Repositorio (`go test ./...`)
+### Evidencia 3: Validación del Endpoint `/metrics` (Métricas RED) y Propagación `traceparent` vía cURL
+
+Respuesta HTTP emitida al consultar el servicio activo con la cabecera W3C `traceparent`:
+
+![Respuesta cURL con Métricas RED y Headers W3C](img/Captura%20de%20pantalla%202026-10-18%20201524.png)
 
 ```text
-ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http	0.053s
-ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/middleware	0.284s
-ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/out/persistence	0.024s
-ok  	github.com/code-sena/design-software-training-environment-service/internal/application/usecase	0.020s
-ok  	github.com/code-sena/design-software-training-environment-service/internal/domain/model	0.020s
-ok  	github.com/code-sena/design-software-training-environment-service/internal/observability	0.031s
+# HELP http_requests_total Total number of HTTP requests processed (RED Rate metric)
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/health",status="200"} 1
+
+# HELP http_requests_errors_total Total number of HTTP requests returning errors (status >= 400) (RED Errors metric)
+# TYPE http_requests_errors_total counter
+
+# HELP http_request_duration_seconds HTTP request latencies in seconds (RED Duration metric)
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",path="/health",le="0.005"} 1
+...
+HTTP/1.1 200 OK
+Content-Type: application/json
+Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-838d77dd5db8ebeb-01
+X-Correlation-Id: 4bf92f3577b34da6a3ce929d0e0e4736
+X-Trace-Id: 4bf92f3577b34da6a3ce929d0e0e4736
 ```
-**Resultado:** 100% de los tests del repositorio pasando satisfactoriamente.
+
+### Evidencia 4: Despliegue de la Infraestructura de Observabilidad con Docker Compose
+
+Levantamiento de los contenedores de Grafana y Prometheus utilizando `docker compose`:
+
+![Despliegue Docker Compose Grafana y Prometheus](img/Captura%20de%20pantalla%202026-10-18%20203115.png)
+
+```text
+[+] up 25/25
+ ✔ Image grafana/grafana:10.1.0        Pulled
+ ✔ Image prom/prometheus:v2.47.0       Pulled
+ ✔ Container training-env-prometheus   Recreated
+ ✔ Container training-env-grafana      Recreated
+```
+
+### Evidencia 5: Tablero Grafana de Métricas RED y Umbral de Alerta
+
+Visualización gráfica en tiempo real en Grafana con los paneles de Tasa (Rate), Errores (Errors %), Latencia (P50, P95, P99) y Umbral de Alerta al 5%:
+
+![Tablero Grafana RED y Alerta de Error](img/Captura%20de%20pantalla%202026-10-18%20204407.png)
 
 ---
 
@@ -179,6 +221,12 @@ design-software-training-environment-service/
 └── docs/
     ├── adr/
     │   └── ADR-004-observability-opentelemetry-red-metrics.md # Registro de Decisión Arquitectónica
+    ├── img/                                            # Evidencias gráficas (capturas de pantalla)
+    │   ├── Captura de pantalla 2026-10-18 200900.png
+    │   ├── Captura de pantalla 2026-10-18 200918.png
+    │   ├── Captura de pantalla 2026-10-18 201524.png
+    │   ├── Captura de pantalla 2026-10-18 203115.png
+    │   └── Captura de pantalla 2026-10-18 204407.png
     └── INFORME-TECNICO-R3-OBSERVABILIDAD.md            # Este informe técnico
 ```
 
