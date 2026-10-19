@@ -106,9 +106,9 @@ Prueba automatizada dentro de contenedor Docker aislando el entorno de compilaci
 --- PASS: TestTraceContext_NewAndPropagation (0.00s)
 ```
 
-### Evidencia 2: Verificación de Trazabilidad Distribuida Completa (MFE → HTTP → DB)
+### Evidencia 2: Verificación de Trazabilidad Distribuida Completa (MFE → HTTP → DB con otelsql)
 
-Salida de terminal donde se valida el árbol de spans y la persistencia de la traza compartida:
+Prueba automatizada de integración (`TestDistributedTracing_MFE_To_Service_To_Database`) que ejecuta una consulta SQL real sobre PostgreSQL utilizando una conexión instrumentada con `OpenTracedPostgresDB()` (`otelsql`). Se valida que el span de base de datos es generado automáticamente por `otelsql` sin instrumentación manual, compartiendo el `trace_id`, enlazando la jerarquía padre-hijo e incluyendo los atributos semánticos de la consulta ejecutada:
 
 ![Verificación de Traza Distribuida MFE a DB](img/Captura%20de%20pantalla%202026-10-18%20200918.png)
 
@@ -116,15 +116,28 @@ Salida de terminal donde se valida el árbol de spans y la persistencia de la tr
 === RUN   TestREDMetricsRegistry
 --- PASS: TestREDMetricsRegistry (0.00s)
 === RUN   TestObservability_MiddlewareIntegration
-{"time":"2026-10-19T00:19:36.741Z","level":"INFO","msg":"HTTP request completed","service.name":"training-environment-service","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"38cc43463d7fb539","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-38cc43463d7fb539-01","http.method":"POST","http.route":"/training-environments","http.status_code":201}
+{"time":"2026-10-19T20:29:06.844Z","level":"INFO","msg":"HTTP request completed","service.name":"test-service","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"cfb49a82f46c25d1","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-cfb49a82f46c25d1-01","http.method":"POST","http.route":"/training-environments","http.status_code":201}
 --- PASS: TestObservability_MiddlewareIntegration (0.01s)
 === RUN   TestDistributedTracing_MFE_To_Service_To_Database
-    observability_test.go:292: Distributed Trace Verified Successfully:
-    observability_test.go:293:   MFE Span ID:      00f067aa0ba902b7
-    observability_test.go:294:   HTTP Server Span: b5110d754e6c291d (Parent: 00f067aa0ba902b7)
-    observability_test.go:295:   DB Client Span:   e278c720b4f8f3ab (Parent: b5110d754e6c291d)
-    observability_test.go:296:   Shared Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736
---- PASS: TestDistributedTracing_MFE_To_Service_To_Database (0.039s)
+{"time":"2026-10-19T20:29:07.083Z","level":"INFO","msg":"HTTP request completed","service.name":"training-environment-service","correlation_id":"4bf92f3577b34da6a3ce929d0e0e4736","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"535cb3ee50a7e6db","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-535cb3ee50a7e6db-01","http.method":"GET","http.route":"/training-environments","http.status_code":200}
+    observability_test.go:277: Total spans recorded: 3
+    observability_test.go:279: Span[0]: Name="sql.conn.query", Kind=client, TraceID=4bf92f3577b34da6a3ce929d0e0e4736, SpanID=4ff16ebaee0ad236, ParentSpanID=535cb3ee50a7e6db
+    observability_test.go:282:    attr: db.system=postgresql
+    observability_test.go:282:    attr: db.name=training_environment_db
+    observability_test.go:282:    attr: db.query.text=SELECT 1 AS trace_check
+    observability_test.go:279: Span[1]: Name="sql.rows", Kind=client, TraceID=4bf92f3577b34da6a3ce929d0e0e4736, SpanID=96b80354a2fe0c28, ParentSpanID=535cb3ee50a7e6db
+    observability_test.go:282:    attr: db.system=postgresql
+    observability_test.go:282:    attr: db.name=training_environment_db
+    observability_test.go:279: Span[2]: Name="GET /training-environments", Kind=server, TraceID=4bf92f3577b34da6a3ce929d0e0e4736, SpanID=535cb3ee50a7e6db, ParentSpanID=00f067aa0ba902b7
+    observability_test.go:282:    attr: http.method=GET
+    observability_test.go:282:    attr: http.target=/training-environments
+    observability_test.go:282:    attr: http.status_code=200
+    observability_test.go:362: Distributed Trace Verified Successfully:
+    observability_test.go:363:   MFE Span ID:      00f067aa0ba902b7
+    observability_test.go:364:   HTTP Server Span: 535cb3ee50a7e6db (Parent: 00f067aa0ba902b7)
+    observability_test.go:365:   DB Client Span:   4ff16ebaee0ad236 (Parent: 535cb3ee50a7e6db)
+    observability_test.go:366:   Shared Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736
+--- PASS: TestDistributedTracing_MFE_To_Service_To_Database (0.24s)
 PASS
 ```
 
