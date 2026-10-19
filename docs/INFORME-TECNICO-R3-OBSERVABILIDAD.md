@@ -13,137 +13,90 @@
 | **Rúbrica oficial** | Acta 02, Numeral 10. |
 | **Rama de trabajo** | `feature/r3-observability`. |
 | **Fecha de ejecución** | 18 de octubre de 2026. |
-| **Versión del informe** | 1.0 — Entrega técnica de observabilidad, trazas, métricas RED, logs y Grafana. |
-| **Resultado técnico** | **100% Exitoso**: 5 de 5 criterios de la rúbrica implementados y validados con pruebas automatizadas. |
+| **Versión del informe** | 2.0 — Revalidación QA: SDK oficial OpenTelemetry, trazabilidad MFE → API → PostgreSQL y métricas RED. |
+| **Resultado técnico** | **100% Exitoso / PASS**: Todos los criterios de la rúbrica implementados, bloqueadores de QA subsanados y validados con pruebas automatizadas. |
 
 ---
 
-## 1. Resumen Ejecutivo
+## 1. Resumen Ejecutivo y Resolución de Hallazgos QA
 
-En el marco del plan de mejoramiento del programa ADSO (Ficha 3145555), se diseñó e implementó la suite completa de observabilidad sobre el microservicio `training-environment-service`.
+En el marco del plan de mejoramiento del programa ADSO (Ficha 3145555) y en respuesta a la revalidación emitida por el equipo de Aseguramiento de Calidad (QA) sobre el PR #19, se completó la integración total del **SDK oficial de OpenTelemetry**, eliminando la implementación manual y extendiendo la trazabilidad distribuida desde el Microfrontend (MFE) a través del servicio hasta las operaciones de persistencia en la base de datos PostgreSQL.
 
-La solución cumple de extremo a extremo con los requerimientos de la rúbrica de aseguramiento de calidad (Acta 02, Numeral 10), garantizando que cualquier petición que ingrese desde el Microfrontend (MFE) o pasarela de enlace sea rastreada, medida y registrada con identidad única a través de todas las capas de la arquitectura hexagonal.
+### Matriz de Resolución de Observaciones QA
 
----
-
-## 2. Cumplimiento de Criterios Técnicos de la Rúbrica
-
-### Criterio 1: Traza Distribuida (OpenTelemetry & W3C Trace Context)
-- **Especificación:** Se implementó el estándar W3C Trace Context (*W3C Recommendation / OpenTelemetry*) mediante el paquete `internal/observability`.
-- **Estructura de la cabecera:** Se valida y genera la cabecera estándar:
-  ```http
-  traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
-  ```
-  Donde:
-  - `00`: Versión actual W3C.
-  - `4bf92f3577b34da6a3ce929d0e0e4736`: Identificador único de traza (16 bytes = 32 caracteres hexadecimales).
-  - `00f067aa0ba902b7`: Identificador del tramo/span (8 bytes = 16 caracteres hexadecimales).
-  - `01`: Bandera de muestreo (`sampled`).
-- **Propagación bidireccional:**
-  - El middleware HTTP `ObservabilityMiddleware` extrae la cabecera `traceparent` entrante y continúa la traza. Si está ausente, genera una nueva con entropía criptográfica (`crypto/rand`).
-  - El contexto se inyecta en el `context.Context` de Go y se propaga a las capas de aplicación y persistencia (PostgreSQL).
-  - El servicio devuelve `traceparent`, `x-correlation-id` y `x-trace-id` en las cabeceras de respuesta HTTP para que el MFE pueda correlacionar el resultado con la vista del usuario.
-
-### Criterio 2: Métricas RED (Rate, Errors, Duration)
-- **Métricas expuestas en `/metrics` (formato estándar Prometheus):**
-  1. **Rate (Tasa de peticiones):**
-     ```prometheus
-     # HELP http_requests_total Total number of HTTP requests processed (RED Rate metric)
-     # TYPE http_requests_total counter
-     http_requests_total{method="GET",path="/training-environments",status="200"} 42
-     ```
-  2. **Errors (Tasa de errores):**
-     ```prometheus
-     # HELP http_requests_errors_total Total number of HTTP requests returning errors (status >= 400) (RED Errors metric)
-     # TYPE http_requests_errors_total counter
-     http_requests_errors_total{method="GET",path="/training-environments",status="401"} 3
-     ```
-  3. **Duration (Duración / Latencia):**
-     ```prometheus
-     # HELP http_request_duration_seconds HTTP request latencies in seconds (RED Duration metric)
-     # TYPE http_request_duration_seconds histogram
-     http_request_duration_seconds_bucket{method="GET",path="/training-environments",le="0.005"} 15
-     http_request_duration_seconds_bucket{method="GET",path="/training-environments",le="0.01"} 25
-     ...
-     http_request_duration_seconds_sum{method="GET",path="/training-environments"} 0.354000
-     http_request_duration_seconds_count{method="GET",path="/training-environments"} 42
-     ```
-  4. **Concurrencia (In-flight):**
-     ```prometheus
-     # HELP http_requests_in_flight Current number of HTTP requests being served
-     # TYPE http_requests_in_flight gauge
-     http_requests_in_flight 0
-     ```
-- **Control de cardinalidad:** Los identificadores dinámicos UUID en las rutas se sustituyen automáticamente por `{id}` para prevenir explosión de memoria en Prometheus/Grafana.
-
-### Criterio 3: Logs Estructurados con Correlación (`correlation_id`)
-- **Motor:** Se implementó `slog.NewJSONHandler` emitiendo eventos estructurados en formato JSON por `stdout`.
-- **Campos incluidos en cada traza de log:**
-  ```json
-  {
-    "time": "2026-10-18T13:34:33.6934279-05:00",
-    "level": "INFO",
-    "msg": "HTTP request completed",
-    "service.name": "training-environment-service",
-    "service.version": "1.0.0",
-    "environment": "development",
-    "correlation_id": "adso-3145555-emily-amezquita-corr-001",
-    "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
-    "span_id": "00f067aa0ba902b7",
-    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
-    "http.method": "GET",
-    "http.route": "/training-environments",
-    "http.status_code": 200,
-    "http.duration_ms": 3.42,
-    "http.client_ip": "127.0.0.1",
-    "http.user_agent": "Mozilla/5.0..."
-  }
-  ```
-- **Niveles dinámicos:** Código HTTP $2xx/3xx \rightarrow \text{INFO}$, $4xx \rightarrow \text{WARN}$, $5xx \rightarrow \text{ERROR}$.
-
-### Criterio 4: Tablero de Grafana y Alerta como Código
-- **Provisioning as Code:**
-  - `deploy/grafana/provisioning/datasources/prometheus-datasource.yml`: Configura el origen de datos Prometheus de manera desatendida.
-  - `deploy/grafana/provisioning/dashboards/dashboards-provisioning.yml`: Carga automáticamente los tableros al arrancar el contenedor.
-  - `deploy/grafana/dashboards/training-environment-red-dashboard.json`: Tablero con paneles de visualización para:
-    - *Panel Stat:* Rate global (RPS).
-    - *Panel Stat:* Tasa de error (%) en tiempo real.
-    - *Panel Stat:* Latencia P95.
-    - *Panel Stat:* Peticiones concurrentes en vuelo.
-    - *Panel Time Series:* Tasa de peticiones por endpoint.
-    - *Panel Time Series:* Desglose de errores por código HTTP.
-    - *Panel Time Series con Umbral SLA (5%):* Tasa de error porcentual con línea roja de alerta.
-    - *Panel Time Series:* Distribución percentilada P50, P95 y P99.
-- **Regla de Alerta (> 5% de error):**
-  Definida en `deploy/grafana/alerts/red-alerts.yml`:
-  ```yaml
-  - alert: TrainingEnvironmentHighErrorRate
-    expr: (sum(rate(http_requests_errors_total[5m])) / sum(rate(http_requests_total[5m]))) * 100 > 5
-    for: 1m
-    labels:
-      severity: critical
-      service: training-environment-service
-    annotations:
-      summary: "Tasa de error HTTP crítica (> 5%) en training-environment-service"
-      description: "La tasa de errores HTTP es del {{ $value | printf \"%.2f\" }}%, superando el umbral SLA del 5%."
-  ```
-
-### Criterio 5: Documentación Obligatoria
-- **ADR Oficial:** Registrado en [docs/adr/ADR-004-observability-opentelemetry-red-metrics.md](docs/adr/ADR-004-observability-opentelemetry-red-metrics.md).
-- **Informe Técnico:** Este documento ([docs/INFORME-TECNICO-R3-OBSERVABILIDAD.md](docs/INFORME-TECNICO-R3-OBSERVABILIDAD.md)).
+| Componente Observado por QA | Estado Previo | Solución Implementada en esta Entrega | Estado Actual |
+|---|---|---|:---:|
+| **Dependencias OpenTelemetry** | `go.mod` contenía únicamente `github.com/lib/pq`. | Incorporadas dependencias oficiales: `go.opentelemetry.io/otel`, `otel/trace`, `otel/sdk`, `otel/exporters/otlp` y `otel/exporters/stdout`. | **PASS** |
+| **TracerProvider & OTel SDK** | Sin TracerProvider oficial ni exportadores de spans. | Implementado `internal/observability/tracer.go` con `sdktrace.NewTracerProvider`, exportadores OTLP gRPC y Stdout, muestreo `ParentBased(AlwaysSample)` y apagado ordenado (`Shutdown`). | **PASS** |
+| **Trazabilidad W3C hacia PostgreSQL** | Spans no exportables; sin instrumentación en BD. | Integrado `github.com/XSAM/otelsql`. Las conexiones a PostgreSQL (`observability.OpenTracedPostgresDB`) crean spans de tipo Client hijos del span HTTP para cada consulta SQL. | **PASS** |
+| **Continuidad de Traza Distribuida** | No demostraba continuidad MFE → Servicio → DB. | Prueba automatizada `TestDistributedTracing_MFE_To_Service_To_Database` valida matemáticamente que MFE, HTTP y DB comparten el mismo `trace_id` con jerarquía padre-hijo estricta. | **PASS** |
+| **Limpieza de Binarios Generados** | `training-environment-api.exe` estaba en el índice de Git. | Ejecutado `git rm --cached training-environment-api.exe` e ignorado permanentemente en `.gitignore`. | **PASS** |
 
 ---
 
-## 3. Evidencias de Ejecución y Salidas de Prueba
+## 2. Arquitectura de Observabilidad Implementada
 
-### Prueba 1: Ejecución de la Suite de Pruebas Automatizadas
-Se ejecutaron las pruebas unitarias e integración del paquete `internal/observability`:
+### 2.1. Trazabilidad Distribuida de Extremo a Extremo (MFE → Servicio → PostgreSQL)
 
-```powershell
-go test -v ./internal/observability/...
+La traza distribuida implementa rigurosamente la recomendación del W3C (*W3C Trace Context Level 1*) y los estándares semánticos de OpenTelemetry:
+
+```text
+[ Microfrontend (MFE React 18 / Vite) ]
+       │
+       │ HTTP Request con Header:
+       │ traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│ training-environment-service (HTTP Server Span)                        │
+│ Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736                           │
+│ Span ID:   30255d55861dd138                                            │
+│ Parent ID: 00f067aa0ba902b7 (Span del MFE)                             │
+│ Kind:      SERVER                                                      │
+│ Atributos: http.method=GET, http.route=/training-environments          │
+│                                                                        │
+│   ├── Log Estructurado JSON:                                           │
+│   │   {"msg":"HTTP request completed","trace_id":"...","span_id":"..."}│
+│   │                                                                    │
+│   └── Repositorio PostgreSQL instrumentado vía otelsql (DB Client Span)│
+│       Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736 (¡MISMO TRACE ID!)  │
+│       Span ID:   58b1f9abdd21fb00                                      │
+│       Parent ID: 30255d55861dd138 (Span HTTP del Servicio)             │
+│       Kind:      CLIENT                                                │
+│       Atributos: db.system=postgresql, db.statement=SELECT ...         │
+└────────────────────────────────────────────────────────────────────────┘
+       │
+       │ HTTP/1.1 200 OK
+       │ Traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-30255d55861dd138-01
+       │ X-Correlation-Id: 4bf92f3577b34da6a3ce929d0e0e4736
+       ▼
+[ Cliente MFE / Pasarela ]
 ```
 
-**Resultado:**
+### 2.2. Métricas RED (Rate, Errors, Duration) en `/metrics`
+
+Las métricas se exponen bajo el estándar textual de Prometheus 0.0.4:
+1. **Rate:** `http_requests_total{method, path, status}` (Contador de volumen por endpoint).
+2. **Errors:** `http_requests_errors_total{method, path, status}` (Contador de fallas HTTP $\ge 400$).
+3. **Duration:** `http_request_duration_seconds_bucket{method, path, le="..."}` (Histograma con 11 buckets de latencia para cálculo de P50, P90, P95, P99).
+4. **In-Flight:** `http_requests_in_flight` (Gauge de concurrencia activa).
+
+### 2.3. Logs Estructurados JSON Correlacionados
+
+Implementados mediante `log/slog` direccionado a `stdout`. Cada registro incluye:
+- `service.name`: `training-environment-service`
+- `environment`: `development` | `qa` | `production`
+- `correlation_id`: Extraído de `x-correlation-id` o asignado al `trace_id`.
+- `trace_id`, `span_id`, `traceparent`.
+- `http.method`, `http.route`, `http.status_code`, `http.duration_ms`, `http.client_ip`.
+
+---
+
+## 3. Evidencias de Validación y Pruebas Automatizadas
+
+### Prueba 1: Suite Completa de Tests de Observabilidad (`go test -v`)
+
+Se ejecutó la suite de pruebas unitarias e integradas en el paquete `internal/observability`:
+
 ```text
 === RUN   TestTraceContext_ParseTraceparent
 --- PASS: TestTraceContext_ParseTraceparent (0.00s)
@@ -152,58 +105,77 @@ go test -v ./internal/observability/...
 === RUN   TestREDMetricsRegistry
 --- PASS: TestREDMetricsRegistry (0.00s)
 === RUN   TestObservability_MiddlewareIntegration
-{"time":"2026-10-18T13:29:55.5203814-05:00","level":"INFO","msg":"HTTP request completed","service.name":"test-service","service.version":"1.0.0","environment":"test","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01","http.method":"POST","http.route":"/training-environments","http.status_code":201,"http.duration_ms":0,"http.client_ip":"192.0.2.1","http.user_agent":""}
---- PASS: TestObservability_MiddlewareIntegration (0.07s)
+{"time":"2026-10-19T00:19:36.741193854Z","level":"INFO","msg":"HTTP request completed","service.name":"test-service","service.version":"1.0.0","environment":"test","correlation_id":"corr-test-12345","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"38cc43463d7fb539","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-38cc43463d7fb539-01","http.method":"POST","http.route":"/training-environments","http.status_code":201,"http.duration_ms":0.097,"http.client_ip":"192.0.2.1","http.user_agent":""}
+--- PASS: TestObservability_MiddlewareIntegration (0.01s)
+=== RUN   TestDistributedTracing_MFE_To_Service_To_Database
+{"time":"2026-10-19T00:19:36.752786061Z","level":"INFO","msg":"HTTP request completed","service.name":"training-environment-service","service.version":"1.0.0","environment":"test","correlation_id":"4bf92f3577b34da6a3ce929d0e0e4736","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"30255d55861dd138","traceparent":"00-4bf92f3577b34da6a3ce929d0e0e4736-30255d55861dd138-01","http.method":"GET","http.route":"/training-environments","http.status_code":200,"http.duration_ms":5.605,"http.client_ip":"192.0.2.1","http.user_agent":""}
+    observability_test.go:292: Distributed Trace Verified Successfully:
+    observability_test.go:293:   MFE Span ID:      00f067aa0ba902b7
+    observability_test.go:294:   HTTP Server Span: 30255d55861dd138 (Parent: 00f067aa0ba902b7)
+    observability_test.go:295:   DB Client Span:   58b1f9abdd21fb00 (Parent: 30255d55861dd138)
+    observability_test.go:296:   Shared Trace ID:  4bf92f3577b34da6a3ce929d0e0e4736
+--- PASS: TestDistributedTracing_MFE_To_Service_To_Database (0.01s)
 PASS
-ok      github.com/code-sena/design-software-training-environment-service/internal/observability       0.525s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/observability	0.038s
 ```
 
-### Prueba 2: Salida en Vivo de la API y Propagación W3C
-Se ejecutó la prueba de integración con inyección de cabeceras entrantes desde el frontend:
+### Prueba 2: Verificación de Todo el Repositorio (`go test ./...`)
 
-```powershell
-node .\validacion-training-environment\test-r3-observability.mjs
+```text
+ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http	0.053s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/in/http/middleware	0.284s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/adapter/out/persistence	0.024s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/application/usecase	0.020s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/domain/model	0.020s
+ok  	github.com/code-sena/design-software-training-environment-service/internal/observability	0.031s
 ```
-
-**Salida obtenida:**
-- **Petición con cabecera entrante:**
-  `traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`
-  `x-correlation-id: adso-3145555-emily-amezquita-corr-001`
-- **Cabeceras de respuesta devueltas por la API:**
-  `traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`
-  `x-correlation-id: adso-3145555-emily-amezquita-corr-001`
-  `x-trace-id: 4bf92f3577b34da6a3ce929d0e0e4736`
-- **Registro en el log estructurado JSON:**
-  El log correlacionó inmediatamente el `correlation_id` y `trace_id` con nivel `WARN` debido a la validación de autenticación 401.
+**Resultado:** 100% de los tests del repositorio pasando satisfactoriamente.
 
 ---
 
-## 4. Estructura de Archivos Creados y Modificados
+## 4. Tabla de Equivalencia Técnica: Go vs Spring Boot
+
+Para facilitar la sustentación técnica ante el comité de evaluación del SENA, se detalla la equivalencia entre las tecnologías implementadas en Go y su par en el stack Java / Spring Boot:
+
+| Concepto de la Rúbrica | Implementación en este Microservicio (Go) | Equivalente en Java / Spring Boot |
+|---|---|---|
+| **SDK de OpenTelemetry** | `go.opentelemetry.io/otel` + `sdktrace.NewTracerProvider` | `io.opentelemetry:opentelemetry-sdk` + OpenTelemetry Java Agent |
+| **Trazabilidad W3C HTTP** | `internal/observability/middleware.go` con `otel.GetTextMapPropagator` | `io.micrometer:micrometer-tracing-bridge-otel` + Spring Web Filter |
+| **Trazabilidad en Base de Datos** | `github.com/XSAM/otelsql` (`OpenTracedPostgresDB`) | `io.opentelemetry.instrumentation:opentelemetry-jdbc` o Spring Data JPA OTel Driver |
+| **Métricas RED** | `internal/observability/metrics.go` (`http_requests_total`, `http_requests_errors_total`, `http_request_duration_seconds`) | `spring-boot-starter-actuator` + `micrometer-registry-prometheus` (`http.server.requests`) |
+| **Endpoint de Métricas** | `GET /metrics` expuesto en HTTP ServeMux | `GET /actuator/prometheus` en Spring Actuator |
+| **Logging Estructurado** | `log/slog` con `JSONHandler` inyectando `correlation_id` y `trace_id` | `net.logstash.logback:logstash-logback-encoder` con `MDC.put("trace_id", ...)` |
+| **Tablero y Alerta Grafana** | Provisioning as Code en `deploy/grafana/` con alerta al 5% | Provisioning as Code idéntico en Grafana / Prometheus Alertmanager |
+
+---
+
+## 5. Estructura de Archivos del Módulo de Observabilidad
 
 ```text
 design-software-training-environment-service/
 ├── cmd/
 │   └── training-environment-api/
-│       └── main.go                                     # Integración de /metrics y Middleware de Observabilidad
+│       └── main.go                                     # Inicialización de OTel y conexión PostgreSQL traced
 ├── internal/
 │   └── observability/
-│       ├── trace.go                                    # Trazabilidad distribuida W3C Trace Context
-│       ├── metrics.go                                  # Registro y cálculo de métricas RED (Prometheus)
-│       ├── logger.go                                   # Logger estructurado JSON con correlation_id
-│       ├── middleware.go                               # Middleware HTTP unificado
-│       └── observability_test.go                       # Suite de pruebas unitarias
+│       ├── tracer.go                                   # OpenTelemetry TracerProvider, OTLP/Stdout y otelsql
+│       ├── trace.go                                    # W3C Trace Context y puente con trace.SpanFromContext
+│       ├── metrics.go                                  # Registro thread-safe de métricas RED y Prometheus
+│       ├── logger.go                                   # Logger JSON estructurado correlacionado
+│       ├── middleware.go                               # Middleware HTTP con Server Spans y cabeceras W3C
+│       └── observability_test.go                       # Suite de pruebas unitarias y de integración distribuida
 ├── deploy/
 │   ├── docker-compose.observability.yml                # Stack desplegable de Grafana + Prometheus
 │   ├── prometheus/
-│   │   └── prometheus.yml                              # Configuración de scrapeo para /metrics
+│   │   └── prometheus.yml                              # Scrapeo automático de /metrics
 │   └── grafana/
 │       ├── provisioning/
 │       │   ├── datasources/prometheus-datasource.yml   # Datasource Prometheus automático
-│       │   └── dashboards/dashboards-provisioning.yml  # Proveedor de tableros desatendido
+│       │   └── dashboards/dashboards-provisioning.yml  # Provisioning desatendido de tableros
 │       ├── dashboards/
 │       │   └── training-environment-red-dashboard.json # Tablero RED oficial con paneles y alertas
 │       └── alerts/
-│           └── red-alerts.yml                          # Reglas de alerta PromQL (> 5% error)
+│           └── red-alerts.yml                          # Regla de alerta ante Error Rate > 5%
 └── docs/
     ├── adr/
     │   └── ADR-004-observability-opentelemetry-red-metrics.md # Registro de Decisión Arquitectónica
@@ -212,49 +184,7 @@ design-software-training-environment-service/
 
 ---
 
-## 5. Tabla de Equivalencia Técnica: Go vs Spring Boot
-
-Para facilitar la sustentación técnica ante el comité de evaluación del SENA, se presenta la correspondencia de componentes entre este microservicio y la pila Spring Boot:
-
-| Concepto de la Rúbrica | Implementación en este Microservicio (Go) | Equivalente en Java / Spring Boot |
-|---|---|---|
-| **Trazabilidad Distribuida** | `internal/observability/trace.go` (W3C Trace Context RFC) | `io.micrometer:micrometer-tracing-bridge-otel` + OpenTelemetry Java Agent |
-| **Métricas RED** | `internal/observability/metrics.go` (`http_requests_total`, `http_requests_errors_total`, `http_request_duration_seconds`) | `spring-boot-starter-actuator` + `micrometer-registry-prometheus` (`http.server.requests`) |
-| **Endpoint de Métricas** | `GET /metrics` expuesto en HTTP ServeMux | `GET /actuator/prometheus` expuesto en Spring Actuator |
-| **Logging Estructurado** | `log/slog` con `JSONHandler` inyectando `correlation_id` y `trace_id` | `net.logstash.logback:logstash-logback-encoder` con `MDC.put("correlation_id", ...)` |
-| **Middleware de Correlación** | `Observability.Middleware()` en `internal/observability/middleware.go` | `OncePerRequestFilter` o `HandlerInterceptor` de Spring Web |
-| **Tablero y Alerta Grafana** | Provisioning as Code en `deploy/grafana/` con alerta al 5% | Provisioning as Code idéntico en Grafana / Prometheus Alertmanager |
-
----
-
-## 6. Instrucciones de Reproducción y Verificación
-
-1. **Ejecutar las pruebas unitarias de observabilidad:**
-   ```powershell
-   cd design-software-training-environment-service
-   go test -v ./internal/observability/...
-   ```
-
-2. **Compilar el microservicio:**
-   ```powershell
-   go build -o training-environment-api.exe ./cmd/training-environment-api
-   ```
-
-3. **Iniciar el stack de Grafana y Prometheus (opcional con Docker):**
-   ```powershell
-   docker compose -f deploy/docker-compose.observability.yml up -d
-   ```
-   - Grafana disponible en `http://localhost:3000` (Usuario: `admin`, Clave: `admin`).
-   - Prometheus disponible en `http://localhost:9090`.
-
-4. **Ejecutar prueba en vivo de propagación y métricas:**
-   ```powershell
-   node .\validacion-training-environment\test-r3-observability.mjs
-   ```
-
----
-
-*Informe técnico elaborado y firmado por la aprendiza responsable:*  
+*Informe técnico de revalidación elaborado y firmado por la aprendiza responsable:*  
 **Emily Sharith Amézquita Saavedra**  
 Ficha ADSO 3145555 — SENA  
 *Rama Git:* `feature/r3-observability`

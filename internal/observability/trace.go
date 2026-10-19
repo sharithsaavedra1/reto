@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // W3C Trace Context Constants
@@ -143,11 +145,42 @@ func ContextWithTrace(ctx context.Context, tc *TraceContext) context.Context {
 	return ctx
 }
 
-// TraceFromContext retrieves the TraceContext from context.Context, or nil if not present.
+// ContextWithCorrelationID attaches a correlation ID to context.Context.
+func ContextWithCorrelationID(ctx context.Context, correlationID string) context.Context {
+	if strings.TrimSpace(correlationID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, correlationContextKey, correlationID)
+}
+
+// TraceFromContext retrieves the TraceContext from context.Context, preferring active OpenTelemetry span context.
 func TraceFromContext(ctx context.Context) *TraceContext {
 	if ctx == nil {
 		return nil
 	}
+
+	// 1. Inspect active OpenTelemetry span
+	span := trace.SpanFromContext(ctx)
+	if span != nil && span.SpanContext().IsValid() {
+		sc := span.SpanContext()
+		cid := ""
+		if v, ok := ctx.Value(correlationContextKey).(string); ok {
+			cid = v
+		}
+		if cid == "" {
+			cid = sc.TraceID().String()
+		}
+		return &TraceContext{
+			Version:       CurrentTraceVersion,
+			TraceID:       sc.TraceID().String(),
+			SpanID:        sc.SpanID().String(),
+			TraceFlags:    sc.TraceFlags().String(),
+			CorrelationID: cid,
+			IsRemote:      sc.IsRemote(),
+		}
+	}
+
+	// 2. Fallback to manually stored TraceContext
 	if tc, ok := ctx.Value(traceContextKey).(*TraceContext); ok {
 		return tc
 	}
@@ -159,7 +192,7 @@ func CorrelationIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	if cid, ok := ctx.Value(correlationContextKey).(string); ok {
+	if cid, ok := ctx.Value(correlationContextKey).(string); ok && cid != "" {
 		return cid
 	}
 	if tc := TraceFromContext(ctx); tc != nil {

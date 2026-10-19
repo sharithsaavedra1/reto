@@ -1,11 +1,12 @@
 package main
 
 import (
-	"database/sql"
+	"context"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	_ "github.com/lib/pq"
 
@@ -18,7 +19,23 @@ import (
 )
 
 func main() {
-	// 1. Storage repositories setup (PostgreSQL or In-Memory fallback)
+	appEnv := strings.ToLower(env("APP_ENV", env("ENVIRONMENT", env("ENV", "development"))))
+
+	// 1. Observability suite initialization (OpenTelemetry TracerProvider, RED Metrics, Structured Logging)
+	obs := observability.New(observability.Config{
+		ServiceName:    "training-environment-service",
+		ServiceVersion: "1.0.0",
+		Environment:    appEnv,
+	})
+	if obs.Shutdown != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = obs.Shutdown(shutdownCtx)
+		}()
+	}
+
+	// 2. Storage repositories setup (PostgreSQL with OpenTelemetry instrumentation or In-Memory fallback)
 	var envTypeRepo port.EnvironmentTypeRepository
 	var envRepo port.EnvironmentRepository
 	var availabilityRuleRepo port.AvailabilityRuleRepository
@@ -28,9 +45,9 @@ func main() {
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL != "" {
-		db, err := sql.Open("postgres", dbURL)
+		db, err := observability.OpenTracedPostgresDB(dbURL)
 		if err != nil {
-			log.Fatalf("failed to connect to postgres: %v", err)
+			log.Fatalf("failed to connect to traced postgres: %v", err)
 		}
 		defer db.Close()
 		envTypeRepo = persistence.NewPostgresEnvironmentTypeRepository(db)
@@ -39,7 +56,7 @@ func main() {
 		maintenanceRepo = persistence.NewPostgresMaintenanceRepository(db)
 		reservationRepo = persistence.NewPostgresReservationRepository(db)
 		utilizationRepo = persistence.NewPostgresEnvironmentUtilizationRepository(db)
-		log.Println("connected to PostgreSQL repositories")
+		log.Println("connected to PostgreSQL repositories with OpenTelemetry instrumentation")
 	} else {
 		envTypeRepo = persistence.NewMemoryEnvironmentTypeRepository()
 		envRepo = persistence.NewMemoryEnvironmentRepository()
@@ -50,16 +67,15 @@ func main() {
 		log.Println("using in-memory repositories with default seed data")
 	}
 
-	// 2. Application use cases setup
+	// 3. Application use cases setup
 	envTypeUseCase := usecase.NewEnvironmentTypeUseCase(envTypeRepo)
 	envUseCase := usecase.NewEnvironmentUseCase(envRepo, envTypeRepo)
 
-	// 3. Security middleware setup with strict environment checks (RS256 / JWKS IAM Governance & HS256 dev fallback)
+	// 4. Security middleware setup with strict environment checks (RS256 / JWKS IAM Governance & HS256 dev fallback)
 	jwtSecret := strings.TrimSpace(os.Getenv("JWT_SECRET"))
 	jwtPublicKey := strings.TrimSpace(os.Getenv("JWT_PUBLIC_KEY"))
 	jwksURL := strings.TrimSpace(os.Getenv("JWKS_URL"))
 	jwksJSON := strings.TrimSpace(os.Getenv("JWKS_JSON"))
-	appEnv := strings.ToLower(env("APP_ENV", env("ENVIRONMENT", env("ENV", "development"))))
 
 	if jwtSecret == "" && jwtPublicKey == "" && jwksURL == "" && jwksJSON == "" {
 		if isNonLocalEnv(appEnv) {
@@ -69,13 +85,6 @@ func main() {
 		jwtSecret = "dev-secret-key"
 	}
 	authMiddleware := middleware.NewAuthMiddleware(jwtSecret)
-
-	// 4. Observability suite initialization (OpenTelemetry W3C Tracing, RED Metrics, Structured Logging)
-	obs := observability.New(observability.Config{
-		ServiceName:    "training-environment-service",
-		ServiceVersion: "1.0.0",
-		Environment:    appEnv,
-	})
 
 	// 5. HTTP Router and Handlers
 	mux := http.NewServeMux()
