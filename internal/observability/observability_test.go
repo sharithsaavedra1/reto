@@ -171,35 +171,12 @@ func TestObservability_MiddlewareIntegration(t *testing.T) {
 	}
 }
 
-func getReachablePostgresURL(t *testing.T) string {
-	candidates := []string{
-		os.Getenv("DATABASE_URL"),
-		os.Getenv("TEST_DATABASE_URL"),
-		"postgres://postgres@localhost:5432/postgres?sslmode=disable",
-		"postgres://postgres@host.docker.internal:5432/postgres?sslmode=disable",
-		"postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable",
-		"postgres://postgres:postgres@host.docker.internal:5432/postgres?sslmode=disable",
-		"postgres://validation_app:ValidationPass123!@localhost:5432/training_environment_validation?sslmode=disable",
-		"postgres://validation_app:ValidationPass123!@host.docker.internal:5432/training_environment_validation?sslmode=disable",
-		"postgres://drivique_migrator:change-me-migrator-password@localhost:5434/drivique_dev?sslmode=disable",
-		"postgres://drivique_migrator:change-me-migrator-password@host.docker.internal:5434/drivique_dev?sslmode=disable",
+func getTestDatabaseURL() string {
+	if url := os.Getenv("TEST_DATABASE_URL"); strings.TrimSpace(url) != "" {
+		return strings.TrimSpace(url)
 	}
-
-	for _, cand := range candidates {
-		if cand == "" {
-			continue
-		}
-		rawDB, err := sql.Open("postgres", cand)
-		if err != nil {
-			continue
-		}
-		pingCtx, pingCancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
-		err = rawDB.PingContext(pingCtx)
-		pingCancel()
-		_ = rawDB.Close()
-		if err == nil {
-			return cand
-		}
+	if url := os.Getenv("DATABASE_URL"); strings.TrimSpace(url) != "" {
+		return strings.TrimSpace(url)
 	}
 	return ""
 }
@@ -209,7 +186,28 @@ func getReachablePostgresURL(t *testing.T) string {
 // through the HTTP service layer, down to an actual PostgreSQL database operation executed
 // via OpenTracedPostgresDB() / otelsql.
 func TestDistributedTracing_MFE_To_Service_To_Database(t *testing.T) {
-	// 1. Setup OpenTelemetry with an in-memory exporter to capture all spans
+	// 1. Integration test prerequisite check:
+	// If TEST_DATABASE_URL or DATABASE_URL is not configured, skip gracefully during standard CI runs
+	dbURL := getTestDatabaseURL()
+	if dbURL == "" {
+		t.Skip("skipping integration test: neither TEST_DATABASE_URL nor DATABASE_URL environment variable is set")
+	}
+
+	// Verify configured database is reachable before proceeding
+	rawDB, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		t.Skipf("skipping integration test: invalid database connection string (%v)", err)
+	}
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if err := rawDB.PingContext(pingCtx); err != nil {
+		pingCancel()
+		_ = rawDB.Close()
+		t.Skipf("skipping integration test: cannot connect to PostgreSQL at configured URL (%v)", err)
+	}
+	pingCancel()
+	_ = rawDB.Close()
+
+	// 2. Setup OpenTelemetry with an in-memory exporter to capture all spans
 	spanRecorder := tracetest.NewInMemoryExporter()
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithSpanProcessor(sdktrace.NewSimpleSpanProcessor(spanRecorder)),
@@ -226,12 +224,6 @@ func TestDistributedTracing_MFE_To_Service_To_Database(t *testing.T) {
 			ServiceVersion: "1.0.0",
 			Environment:    "test",
 		},
-	}
-
-	// 2. Locate reachable PostgreSQL instance and open instrumented connection with OpenTracedPostgresDB
-	dbURL := getReachablePostgresURL(t)
-	if dbURL == "" {
-		t.Fatalf("no reachable PostgreSQL instance found. Ensure PostgreSQL is running on port 5432/5434 or set DATABASE_URL")
 	}
 
 	tracedDB, err := OpenTracedPostgresDB(dbURL)
